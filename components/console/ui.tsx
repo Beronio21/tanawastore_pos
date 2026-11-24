@@ -14,6 +14,7 @@ type PageActions = {
   print?: boolean;
   dateRange?: string;
   aiImport?: boolean;
+  importLabel?: string;
   addLabel?: string;
   addOnClick?: () => void;
   addClass?: string;
@@ -82,6 +83,16 @@ export function PageHeader({
           <button type="button" className={GHOST} onClick={() => storeActions.openModal("postie-ai")}>
             <span>Import with AI</span>
             <Sparkles className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {actions.importLabel && (
+          <button
+            type="button"
+            className={GHOST}
+            onClick={() => storeActions.showToast(`${actions.importLabel} started`, "blue")}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            <span>{actions.importLabel}</span>
           </button>
         )}
         {actions.addLabel && (

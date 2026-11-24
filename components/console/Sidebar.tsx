@@ -27,6 +27,7 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
   const router = useRouter();
   const { state, actions } = usePosStore();
   const remaining = remainingSteps(state.onboarding);
+  const isTabletsRoute = pathname.startsWith("/manage/access/tablets") || pathname.startsWith("/manage/access/pos");
   const dark = state.theme === "dark";
 
   return (
@@ -84,7 +85,7 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
         {NAV_SECTIONS.map((section) => {
           const isSectionActive = section.href
             ? pathname === section.href
-            : section.children.some((entry) => pathname === entry.href);
+            : section.children.some((entry) => pathname === entry.href) || (section.id === "access" && isTabletsRoute);
           const isExpanded = !!state.expandedAccordions[section.id] && !collapsed;
           const Icon = section.icon;
 
@@ -149,7 +150,7 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
               {isExpanded && section.children.length > 0 && (
                 <div className="mb-1.5 mt-0.5 space-y-0.5">
                   {section.children.map((entry) => {
-                    const active = pathname === entry.href;
+                    const active = pathname === entry.href || (section.id === "access" && entry.id === "tablets" && isTabletsRoute);
                     return (
                       <Link
                         key={entry.id}

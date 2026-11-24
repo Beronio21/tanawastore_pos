@@ -174,7 +174,7 @@ export function ReportsView({ slug }: { slug: string }) {
   if (sub === "workshops") {
     return (
       <div>
-        <PageHeader title="Workshops" count={state.stations.length} actions={dateActions} />
+        <PageHeader title="Stations" count={state.stations.length} actions={dateActions} />
         <div className="mt-3 overflow-x-auto border-t border-[#E5E8EC] dark:border-[#33373E]">
           <table className="w-full border-collapse text-left text-xs">
             <thead>

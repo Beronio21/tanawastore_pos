@@ -343,17 +343,37 @@ export function FinancesView({ slug }: { slug: string }) {
             </thead>
             <tbody>
               {rows.map((employee) => {
-                const sales = state.receipts
+                const position = state.positions.find((entry) => entry.title === employee.position);
+                const payroll = position?.payroll;
+                const receiptItems = state.receipts
                   .filter((receipt) => receipt.staffId === employee.id)
-                  .reduce((sum, receipt) => sum + receipt.total, 0);
-                const basePay = (employee.hourlyRate ?? 120) * 8;
-                const totalPay = basePay + sales * 0.05;
+                  .flatMap((receipt) => receipt.items);
+                const fallbackHourlyRate = employee.hourlyRate ?? 120;
+                const basePay = payroll?.perMonth
+                  ? payroll.perMonth
+                  : payroll?.perShift
+                    ? payroll.perShift
+                    : (payroll?.perHour || fallbackHourlyRate) * 8;
+                const defaultCommission = payroll?.commissionRates.length ? 0 : 5;
+                const allCategoriesRate = payroll?.commissionRates.find((rate) => rate.categoryId === "")?.percentage ?? defaultCommission;
+                const commission = receiptItems.reduce((sum, item) => {
+                  const menuItem = state.menuItems.find((entry) => entry.id === item.menuId);
+                  const categoryId = state.menuCategories.find((category) => category.name === menuItem?.category)?.id;
+                  const categoryRate = payroll?.commissionRates.find((rate) => rate.categoryId && rate.categoryId === categoryId)?.percentage;
+                  return sum + item.unitPrice * item.qty * (categoryRate ?? allCategoriesRate) / 100;
+                }, 0);
+                const totalPay = basePay + commission;
+                const fixedRateDescription = payroll?.perMonth
+                  ? `${money(payroll.perMonth)}/month`
+                  : payroll?.perShift
+                    ? `${money(payroll.perShift)}/shift`
+                    : `${money(payroll?.perHour || fallbackHourlyRate)}/hr × 8h`;
                 return (
                   <tr key={employee.id} className={ROW}>
                     <td className={TD}>
                       <div className="font-bold">{employee.position} — {employee.name}</div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        8h shift ({money(employee.hourlyRate ?? 120)}/hr) + 5% sales bonus
+                        {fixedRateDescription} + {payroll?.commissionRates.length ? "configured personal sales commission" : "5% sales bonus"}
                       </div>
                     </td>
                     <td className={`${TD} text-right font-mono`}>1</td>
@@ -563,15 +583,17 @@ export function FinancesView({ slug }: { slug: string }) {
     const revenue = state.receipts.reduce((sum, receipt) => sum + receipt.subtotal, 0);
     const cogs = state.receipts.reduce((sum, receipt) => sum + (receipt.subtotal - receipt.profit), 0);
     const margin = revenue - cogs;
+    const stockDeductions = state.stockDeductions.reduce((sum, deduction) => sum + deduction.sum, 0);
     const expenses = state.transactions
       .filter((tx) => {
         if (tx.type !== "expense") return false;
+        if (tx.category === "Stock deductions") return false;
         const category = state.financeCategories.find((entry) => entry.name === tx.category);
         return category ? category.includeInPnl : true;
       })
       .reduce((sum, tx) => sum + tx.sum, 0);
     const vat = state.receipts.reduce((sum, receipt) => sum + receipt.tax, 0);
-    const net = margin - expenses - vat;
+    const net = margin - stockDeductions - expenses - vat;
     const pct = (value: number) => (revenue > 0 ? `${((Math.abs(value) / revenue) * 100).toFixed(2)}%` : "0.00%");
 
     return (
@@ -594,6 +616,7 @@ export function FinancesView({ slug }: { slug: string }) {
           <div className="divide-y divide-[#E5E8EC] dark:divide-[#33373E]">
             <LivePnlRow label="Revenue (POS Sales)" value={money(revenue)} percent="100.00%" />
             <LivePnlRow label="Cost of products and dishes sold" value={`-${money(cogs)}`} percent={pct(cogs)} negative />
+            <LivePnlRow label="Stock deductions" value={`-${money(stockDeductions)}`} percent={pct(stockDeductions)} negative />
             <LivePnlRow label="Gross Margin" value={money(margin)} percent={pct(margin)} green highlight />
             <LivePnlRow label="Operating Expenses (Included in P&L)" value={`-${money(expenses)}`} percent={pct(expenses)} negative />
             <LivePnlRow label="VAT Collected" value={`-${money(vat)}`} percent={pct(vat)} />

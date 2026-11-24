@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney, formatQty } from "@/lib/format";
-import { accountDisplayName } from "@/lib/console-data";
+import { accountDisplayName, type ButcheryLineItem, type InventoryCheckLine, type StockDeductionLine, type SupplyLineItem, type TransferLineItem } from "@/lib/console-data";
 
 const INPUT =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-[#1A73E8] focus:outline-none dark:border-[#3E434C] dark:bg-[#1D2024] dark:text-white";
@@ -20,6 +20,8 @@ const CANCEL =
   "cursor-pointer rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 dark:border-[#3E434C] dark:text-slate-300";
 const SUBMIT =
   "cursor-pointer rounded-lg bg-[#1DB954] px-4 py-2 text-xs font-bold text-white hover:bg-[#18A348]";
+const TH =
+  "border-b border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-500 dark:border-[#33373E] dark:text-slate-400";
 
 function Overlay({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
@@ -222,59 +224,475 @@ export function AddMenuItemModal() {
   );
 }
 
-export function AddSupplyModal() {
+export function AddInventoryCheckModal() {
   const { state, actions } = usePosStore();
-  const [stockId, setStockId] = useState(state.stockItems[0]?.id ?? "");
-  const [qty, setQty] = useState("2");
-  const [unitCost, setUnitCost] = useState(String(state.stockItems[0]?.cost ?? 0));
-  const selected = state.stockItems.find((entry) => entry.id === stockId);
+  const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
+  const [storage, setStorage] = useState(locations[0] ?? "Storage 1");
+  const [type, setType] = useState<"Full" | "Partial">("Full");
+  const [checkDate, setCheckDate] = useState(() => {
+    const now = new Date();
+    return `${now.toISOString().slice(0, 10)}T${now.toISOString().slice(11, 16)}`;
+  });
+  const quantityAtStorage = (itemId: string, title: string) => {
+    const item = state.stockItems.find((entry) => entry.id === itemId);
+    if (!item) return 0;
+    return item.storageQuantities?.[title] ?? (title === locations[0] ? item.stock : 0);
+  };
+  const [lines, setLines] = useState<InventoryCheckLine[]>(
+    state.stockItems.map((item) => ({
+      stockId: item.id,
+      title: item.title,
+      expected: quantityAtStorage(item.id, storage),
+      actual: quantityAtStorage(item.id, storage),
+      unit: item.unit,
+      cost: item.cost,
+      discrepancyQty: 0,
+      discrepancyValue: 0,
+    })),
+  );
+  const totalValue = lines.reduce((sum, line) => sum + (line.actual - line.expected) * line.cost, 0);
 
   return (
     <Overlay onClose={actions.closeModal}>
+      <Card className="max-w-4xl">
+        <Header title="New Inventory Check" onClose={actions.closeModal} />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            actions.createInventoryCheck({
+              storage,
+              type,
+              startingDate: checkDate,
+              completedDate: checkDate,
+              lines,
+            });
+            actions.closeModal();
+          }}
+          className="space-y-4 p-5 text-xs"
+        >
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div><label className={LABEL}>Storage</label><select value={storage} onChange={(event) => {
+              const nextStorage = event.target.value;
+              setStorage(nextStorage);
+              setLines((current) => current.map((line) => {
+                const expected = quantityAtStorage(line.stockId, nextStorage);
+                return { ...line, expected, actual: expected };
+              }));
+            }} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select></div>
+            <div><label className={LABEL}>Type</label><select value={type} onChange={(event) => setType(event.target.value as "Full" | "Partial")} className={INPUT}><option>Full</option><option>Partial</option></select></div>
+            <div><label className={LABEL}>Check date/time</label><input type="datetime-local" value={checkDate} onChange={(event) => setCheckDate(event.target.value)} className={INPUT} required /></div>
+          </div>
+
+          <div className="max-h-[420px] overflow-auto rounded-lg border border-slate-200 dark:border-[#33373E]">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-slate-50 dark:bg-[#24272C]"><tr><th className={TH}>Item</th><th className={`${TH} text-right`}>Expected stock</th><th className={`${TH} text-right`}>Actual stock</th><th className={`${TH} text-right`}>Discrepancy Qty</th><th className={`${TH} text-right`}>Discrepancy Value</th></tr></thead>
+              <tbody>{lines.map((line, index) => {
+                const discrepancy = line.actual - line.expected;
+                const value = discrepancy * line.cost;
+                return (
+                  <tr key={line.stockId} className="border-b border-slate-100 dark:border-[#33373E]">
+                    <td className="px-3 py-2 font-medium">{line.title}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatQty(line.expected, line.unit)}</td>
+                    <td className="px-3 py-2 text-right"><input type="number" step="0.001" min="0" value={line.actual} onChange={(event) => setLines((current) => current.map((entry, lineIndex) => lineIndex === index ? { ...entry, actual: Number(event.target.value) || 0 } : entry))} className="w-28 rounded-md border border-slate-300 bg-white px-2 py-1 text-right font-mono dark:border-[#3E434C] dark:bg-[#1D2024]" /></td>
+                    <td className={`px-3 py-2 text-right font-mono ${discrepancy > 0 ? "text-emerald-600" : discrepancy < 0 ? "text-rose-500" : "text-slate-500"}`}>{discrepancy > 0 ? "+" : ""}{formatQty(discrepancy, line.unit)}</td>
+                    <td className={`px-3 py-2 text-right font-mono ${value > 0 ? "text-emerald-600" : value < 0 ? "text-rose-500" : "text-slate-500"}`}>{value > 0 ? "+" : ""}{formatMoney(value, state.settings.currencySymbol)}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-[#33373E]"><span className="font-semibold">Total discrepancy value</span><span className={`font-mono font-bold ${totalValue > 0 ? "text-emerald-600" : totalValue < 0 ? "text-rose-500" : ""}`}>{totalValue > 0 ? "+" : ""}{formatMoney(totalValue, state.settings.currencySymbol)}</span></div>
+          <div className="flex justify-end gap-2"><button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button><button type="submit" className={SUBMIT}>Complete Check</button></div>
+        </form>
+      </Card>
+    </Overlay>
+  );
+}
+
+export function AddButcheryModal() {
+  const { state, actions } = usePosStore();
+  const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
+  const [storage, setStorage] = useState(locations[0] ?? "Storage 1");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [comment, setComment] = useState("");
+  const firstItem = state.stockItems[0];
+  const [primary, setPrimary] = useState<ButcheryLineItem>({
+    stockId: firstItem?.id ?? "",
+    title: firstItem?.title ?? "",
+    quantity: 1,
+    unit: firstItem?.unit ?? "pcs",
+  });
+  const [finals, setFinals] = useState<ButcheryLineItem[]>([
+    {
+      stockId: state.stockItems[1]?.id ?? firstItem?.id ?? "",
+      title: state.stockItems[1]?.title ?? firstItem?.title ?? "",
+      quantity: 1,
+      unit: state.stockItems[1]?.unit ?? firstItem?.unit ?? "pcs",
+    },
+  ]);
+
+  const updateFinal = (index: number, patch: Partial<ButcheryLineItem>) => {
+    setFinals((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  };
+
+  return (
+    <Overlay onClose={actions.closeModal}>
+      <Card className="max-w-2xl">
+        <Header title="New Butchery" onClose={actions.closeModal} />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            actions.createButchery({ date, storage, comment, primary, finals });
+            actions.closeModal();
+          }}
+          className="space-y-4 p-5 text-xs"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={LABEL}>Storage location</label>
+              <select value={storage} onChange={(event) => setStorage(event.target.value)} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select>
+            </div>
+            <div>
+              <label className={LABEL}>Date</label>
+              <input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={INPUT} required />
+            </div>
+          </div>
+
+          <div>
+            <label className={LABEL}>Primary item</label>
+            <div className="grid grid-cols-[minmax(0,1fr)_140px] gap-2">
+              <select
+                value={primary.stockId}
+                onChange={(event) => {
+                  const item = state.stockItems.find((entry) => entry.id === event.target.value);
+                  if (item) setPrimary({ stockId: item.id, title: item.title, quantity: primary.quantity, unit: item.unit });
+                }}
+                className={INPUT}
+              >
+                {state.stockItems.map((item) => <option key={item.id} value={item.id}>{item.title} ({formatMoney(item.cost, state.settings.currencySymbol)}/{item.unit})</option>)}
+              </select>
+              <input type="number" step="0.001" min="0.001" required aria-label="Primary quantity" value={primary.quantity} onChange={(event) => setPrimary((current) => ({ ...current, quantity: Number(event.target.value) || 0 }))} className={`${INPUT} font-mono`} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className={LABEL}>Final items</label>
+              <button type="button" onClick={() => {
+                const item = state.stockItems[0];
+                if (item) setFinals((current) => [...current, { stockId: item.id, title: item.title, quantity: 1, unit: item.unit }]);
+              }} className="text-[11px] font-bold text-[#1A73E8] dark:text-[#7EB3F5]">+ Add final item</button>
+            </div>
+            {finals.map((line, index) => (
+              <div key={`${index}-${line.stockId}`} className="grid grid-cols-[minmax(0,1fr)_140px_24px] gap-2">
+                <select
+                  value={line.stockId}
+                  onChange={(event) => {
+                    const item = state.stockItems.find((entry) => entry.id === event.target.value);
+                    if (item) updateFinal(index, { stockId: item.id, title: item.title, unit: item.unit });
+                  }}
+                  className={INPUT}
+                >
+                  {state.stockItems.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+                <input type="number" step="0.001" min="0.001" required aria-label="Final quantity" value={line.quantity} onChange={(event) => updateFinal(index, { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <button type="button" aria-label="Remove final item" disabled={finals.length === 1} onClick={() => setFinals((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-slate-400 hover:text-rose-500 disabled:opacity-30">×</button>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label className={LABEL}>Comment</label>
+            <textarea value={comment} onChange={(event) => setComment(event.target.value)} className={`${INPUT} min-h-16 resize-y`} />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button>
+            <button type="submit" className={SUBMIT}>Save Butchery</button>
+          </div>
+        </form>
+      </Card>
+    </Overlay>
+  );
+}
+
+export function AddTransferModal() {
+  const { state, actions } = usePosStore();
+  const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
+  const [fromStorage, setFromStorage] = useState(locations[0] ?? "Storage 1");
+  const [toStorage, setToStorage] = useState(locations[1] ?? locations[0] ?? "Storage 1");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [employee, setEmployee] = useState("Philip Venje Beronio");
+  const [name, setName] = useState("");
+  const [comment, setComment] = useState("");
+  const firstItem = state.stockItems[0];
+  const [lines, setLines] = useState<TransferLineItem[]>([
+    {
+      stockId: firstItem?.id ?? "",
+      title: firstItem?.title ?? "",
+      quantity: 1,
+      unit: firstItem?.unit ?? "pcs",
+      cost: firstItem?.cost ?? 0,
+    },
+  ]);
+  const sum = lines.reduce((total, line) => {
+    const item = state.stockItems.find((entry) => entry.id === line.stockId);
+    return total + line.quantity * (item?.cost ?? line.cost);
+  }, 0);
+
+  const updateLine = (index: number, patch: Partial<TransferLineItem>) => {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  };
+
+  return (
+    <Overlay onClose={actions.closeModal}>
+      <Card className="max-w-2xl">
+        <Header title="New Transfer" onClose={actions.closeModal} />
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            actions.createTransfer({ date, name: name || comment, comment, employee, fromStorage, toStorage, lines });
+            actions.closeModal();
+          }}
+          className="space-y-4 p-5 text-xs"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><label className={LABEL}>From storage</label><select value={fromStorage} onChange={(event) => setFromStorage(event.target.value)} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select></div>
+            <div><label className={LABEL}>To storage</label><select value={toStorage} onChange={(event) => setToStorage(event.target.value)} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select></div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><label className={LABEL}>Date</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={INPUT} required /></div>
+            <div><label className={LABEL}>Employee</label><select value={employee} onChange={(event) => setEmployee(event.target.value)} className={INPUT}>{state.employees.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></div>
+          </div>
+          <div><label className={LABEL}>Name / Comment</label><input value={name || comment} onChange={(event) => { setName(event.target.value); setComment(event.target.value); }} className={INPUT} placeholder="Optional" /></div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between"><label className={LABEL}>Items to transfer</label><button type="button" onClick={() => {
+              const item = state.stockItems[0];
+              if (item) setLines((current) => [...current, { stockId: item.id, title: item.title, quantity: 1, unit: item.unit, cost: item.cost }]);
+            }} className="text-[11px] font-bold text-[#1A73E8] dark:text-[#7EB3F5]">+ Add item</button></div>
+            {lines.map((line, index) => (
+              <div key={`${index}-${line.stockId}`} className="grid grid-cols-[minmax(0,1fr)_140px_24px] gap-2">
+                <select value={line.stockId} onChange={(event) => {
+                  const item = state.stockItems.find((entry) => entry.id === event.target.value);
+                  if (item) updateLine(index, { stockId: item.id, title: item.title, unit: item.unit, cost: item.cost });
+                }} className={INPUT}>{state.stockItems.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
+                <input type="number" step="0.001" min="0.001" required aria-label="Transfer quantity" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <button type="button" aria-label="Remove transfer item" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-slate-400 hover:text-rose-500 disabled:opacity-30">×</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-[#33373E]"><span className="font-semibold">Sum</span><span className="font-mono font-bold">{formatMoney(sum, state.settings.currencySymbol)}</span></div>
+          <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button><button type="submit" className={SUBMIT}>Save Transfer</button></div>
+        </form>
+      </Card>
+    </Overlay>
+  );
+}
+
+export function AddStockDeductionModal() {
+  const { state, actions } = usePosStore();
+  const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
+  const [storage, setStorage] = useState(locations[0] ?? "Storage 1");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [employee, setEmployee] = useState("Philip Venje Beronio");
+  const [reason, setReason] = useState(state.wasteReasons[0]?.name ?? "");
+  const firstItem = state.stockItems[0];
+  const [lines, setLines] = useState<StockDeductionLine[]>([
+    { stockId: firstItem?.id ?? "", title: firstItem?.title ?? "", quantity: 1, unit: firstItem?.unit ?? "pcs", cost: firstItem?.cost ?? 0 },
+  ]);
+  const sum = lines.reduce((total, line) => {
+    const item = state.stockItems.find((entry) => entry.id === line.stockId);
+    return total + line.quantity * (item?.cost ?? line.cost);
+  }, 0);
+  const updateLine = (index: number, patch: Partial<StockDeductionLine>) => {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  };
+
+  return (
+    <Overlay onClose={actions.closeModal}>
+      <Card className="max-w-2xl">
+        <Header title="New Stock Deduction" onClose={actions.closeModal} />
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          actions.createStockDeductionRecord({ date, storage, employee, reason, lines });
+          actions.closeModal();
+        }} className="space-y-4 p-5 text-xs">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><label className={LABEL}>Storage</label><select value={storage} onChange={(event) => setStorage(event.target.value)} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select></div>
+            <div><label className={LABEL}>Date</label><input type="date" value={date} onChange={(event) => setDate(event.target.value)} className={INPUT} required /></div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div><label className={LABEL}>Employee</label><select value={employee} onChange={(event) => setEmployee(event.target.value)} className={INPUT}>{state.employees.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></div>
+            <div><label className={LABEL}>Reason</label><select value={reason} onChange={(event) => setReason(event.target.value)} className={INPUT} required>{state.wasteReasons.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}</select></div>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between"><label className={LABEL}>Products / ingredients</label><button type="button" onClick={() => {
+              const item = state.stockItems[0];
+              if (item) setLines((current) => [...current, { stockId: item.id, title: item.title, quantity: 1, unit: item.unit, cost: item.cost }]);
+            }} className="text-[11px] font-bold text-[#1A73E8] dark:text-[#7EB3F5]">+ Add item</button></div>
+            {lines.map((line, index) => (
+              <div key={`${index}-${line.stockId}`} className="grid grid-cols-[minmax(0,1fr)_140px_24px] gap-2">
+                <select value={line.stockId} onChange={(event) => {
+                  const item = state.stockItems.find((entry) => entry.id === event.target.value);
+                  if (item) updateLine(index, { stockId: item.id, title: item.title, unit: item.unit, cost: item.cost });
+                }} className={INPUT}>{state.stockItems.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>
+                <input type="number" step="0.001" min="0.001" required aria-label="Deduction quantity" value={line.quantity} onChange={(event) => updateLine(index, { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <button type="button" aria-label="Remove deduction item" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-slate-400 hover:text-rose-500 disabled:opacity-30">×</button>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-[#33373E]"><span className="font-semibold">Sum</span><span className="font-mono font-bold">{formatMoney(sum, state.settings.currencySymbol)}</span></div>
+          <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button><button type="submit" className={SUBMIT}>Save Deduction</button></div>
+        </form>
+      </Card>
+    </Overlay>
+  );
+}
+
+export function AddWasteReasonModal() {
+  const { actions } = usePosStore();
+  const [name, setName] = useState("");
+  return (
+    <Overlay onClose={actions.closeModal}>
       <Card>
+        <Header title="Add Waste Reason" onClose={actions.closeModal} />
+        <form onSubmit={(event) => { event.preventDefault(); actions.addWasteReason(name); actions.closeModal(); }} className="space-y-4 p-5 text-xs">
+          <div><label className={LABEL}>Name</label><input autoFocus value={name} onChange={(event) => setName(event.target.value)} className={INPUT} required /></div>
+          <div className="flex justify-end gap-2"><button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button><button type="submit" className={SUBMIT}>Save Reason</button></div>
+        </form>
+      </Card>
+    </Overlay>
+  );
+}
+
+type SupplyDraftLine = SupplyLineItem & {
+  orderingUnitId: string;
+  packCount: number;
+};
+
+export function AddSupplyModal() {
+  const { state, actions } = usePosStore();
+  const [supplier, setSupplier] = useState("Supplier");
+  const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
+  const [storage, setStorage] = useState(locations[0] ?? "Storage 1");
+  const [accountId, setAccountId] = useState(state.accounts[0]?.id ?? "");
+  const [comment, setComment] = useState("");
+  const [status, setStatus] = useState<"Paid" | "Unpaid">("Paid");
+  const [lines, setLines] = useState<SupplyDraftLine[]>([
+    {
+      stockId: state.stockItems[0]?.id ?? "",
+      title: state.stockItems[0]?.title ?? "",
+      quantity: 1,
+      unit: state.stockItems[0]?.unit ?? "pcs",
+      cost: state.stockItems[0]?.cost ?? 0,
+      orderingUnitId: "",
+      packCount: 1,
+    },
+  ]);
+  const baseQuantity = (line: SupplyDraftLine) => {
+    const orderingUnit = state.orderingUnits.find((entry) => entry.id === line.orderingUnitId);
+    return orderingUnit ? line.packCount * orderingUnit.quantity : line.quantity;
+  };
+  const total = lines.reduce((sum, line) => sum + baseQuantity(line) * line.cost, 0);
+
+  const updateLine = (index: number, patch: Partial<SupplyDraftLine>) => {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, ...patch } : line));
+  };
+
+  return (
+    <Overlay onClose={actions.closeModal}>
+      <Card className="max-w-2xl">
         <Header title="Add Supply" onClose={actions.closeModal} />
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            actions.createSupply(stockId, Number(qty) || 0, Number(unitCost) || 0);
+            actions.createSupplyDelivery({
+              supplier,
+              storage,
+              accountId,
+              comment,
+              status,
+              lines: lines.map((line) => ({
+                stockId: line.stockId,
+                title: line.title,
+                quantity: baseQuantity(line),
+                unit: line.unit,
+                cost: line.cost,
+              })),
+            });
             actions.closeModal();
           }}
           className="space-y-3.5 p-5 text-xs"
         >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={LABEL}>Supplier</label>
+              <select value={supplier} onChange={(event) => setSupplier(event.target.value)} className={INPUT}>
+                {state.suppliers.map((item) => <option key={item.id} value={item.name}>{item.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL}>Storage location</label>
+              <select value={storage} onChange={(event) => setStorage(event.target.value)} className={INPUT}>{locations.map((location) => <option key={location}>{location}</option>)}</select>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={LABEL}>Account</label>
+              <select value={accountId} onChange={(event) => setAccountId(event.target.value)} className={INPUT}>
+                {state.accounts.map((item) => (
+                  <option key={item.id} value={item.id}>{accountDisplayName(item, state.settings.companyName)}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={LABEL}>Status</label>
+              <select value={status} onChange={(event) => setStatus(event.target.value as "Paid" | "Unpaid")} className={INPUT}>
+                <option>Paid</option>
+                <option>Unpaid</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between"><label className={LABEL}>Product / ingredient line items</label><button type="button" onClick={() => {
+              const item = state.stockItems[0];
+              if (item) setLines((current) => [...current, { stockId: item.id, title: item.title, quantity: 1, unit: item.unit, cost: item.cost, orderingUnitId: "", packCount: 1 }]);
+            }} className="text-[11px] font-bold text-[#1A73E8] dark:text-[#7EB3F5]">+ Add line</button></div>
+            {lines.map((line, index) => (
+              <div key={`${index}-${line.stockId}`} className="grid grid-cols-[minmax(0,1fr)_minmax(110px,0.7fr)_75px_95px_24px] gap-2">
+                <select
+                  value={line.stockId}
+                  onChange={(event) => {
+                    const item = state.stockItems.find((entry) => entry.id === event.target.value);
+                    if (item) updateLine(index, { stockId: item.id, title: item.title, unit: item.unit, cost: item.cost, orderingUnitId: "", quantity: 1, packCount: 1 });
+                  }}
+                  className={INPUT}
+                >
+                  {state.stockItems.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+                </select>
+                <select value={line.orderingUnitId} onChange={(event) => updateLine(index, { orderingUnitId: event.target.value, packCount: 1, quantity: 1 })} className={INPUT}>
+                  <option value="">Base unit ({line.unit})</option>
+                  {state.orderingUnits.filter((entry) => entry.unit === line.unit).map((entry) => <option key={entry.id} value={entry.id}>{entry.title} ({formatQty(entry.quantity, entry.unit)})</option>)}
+                </select>
+                <input type="number" step={line.orderingUnitId ? "1" : "0.001"} min="0.001" required aria-label={line.orderingUnitId ? "Pack quantity" : "Quantity"} value={line.orderingUnitId ? line.packCount : line.quantity} onChange={(event) => updateLine(index, line.orderingUnitId ? { packCount: Number(event.target.value) || 0 } : { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <input type="number" step="0.01" min="0" required aria-label="Unit cost" value={line.cost} onChange={(event) => updateLine(index, { cost: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <button type="button" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-slate-400 hover:text-rose-500 disabled:opacity-30">×</button>
+                {line.orderingUnitId && <p className="col-span-full -mt-1 text-[10px] text-slate-500 dark:text-slate-400">{line.packCount} pack(s) = {formatQty(baseQuantity(line), line.unit)} · cost is entered per base unit</p>}
+              </div>
+            ))}
+          </div>
           <div>
-            <label className={LABEL}>Ingredient / Product</label>
-            <select
-              value={stockId}
-              onChange={(event) => {
-                setStockId(event.target.value);
-                const next = state.stockItems.find((entry) => entry.id === event.target.value);
-                setUnitCost(String(next?.cost ?? 0));
-              }}
-              className={INPUT}
-            >
-              {state.stockItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title} (Current: {formatQty(item.stock, item.unit)})
-                </option>
-              ))}
-            </select>
+            <label className={LABEL}>Comment</label>
+            <textarea value={comment} onChange={(event) => setComment(event.target.value)} className={`${INPUT} min-h-16 resize-y`} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={LABEL}>Quantity Added</label>
-              <input type="number" step="0.01" min="0.01" required value={qty} onChange={(event) => setQty(event.target.value)} className={`${INPUT} font-mono`} />
-            </div>
-            <div>
-              <label className={LABEL}>Unit Cost (₱)</label>
-              <input type="number" step="0.01" min="0" required value={unitCost} onChange={(event) => setUnitCost(event.target.value)} className={`${INPUT} font-mono`} />
-            </div>
+          <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-[#33373E]">
+            <span className="font-semibold">Total</span>
+            <span className="font-mono font-bold">{formatMoney(total, state.settings.currencySymbol)}</span>
           </div>
-          {selected && (
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              New stock will be {formatQty(selected.stock + (Number(qty) || 0), selected.unit)} and the expense posts
-              under Supplies.
-            </p>
-          )}
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={actions.closeModal} className={CANCEL}>Cancel</button>
             <button type="submit" className={SUBMIT}>Save Supply &amp; Update Stock</button>
@@ -497,10 +915,15 @@ export function PostieAiModal() {
 }
 
 export function AddEntityModal({ kind }: { kind: "customer" | "employee" }) {
-  const { actions } = usePosStore();
+  const { state, actions } = usePosStore();
+  const customerGroups = state.customerGroups.filter((entry) => !entry.deleted);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [group, setGroup] = useState("VIP 10%");
+  const [profileNum, setProfileNum] = useState("");
+  const [email, setEmail] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [comment, setComment] = useState("");
+  const [group, setGroup] = useState(customerGroups[0]?.title ?? "New customers");
   const [discount, setDiscount] = useState("10");
   const [position, setPosition] = useState("Cashier");
   const [pin, setPin] = useState("1111");
@@ -515,7 +938,11 @@ export function AddEntityModal({ kind }: { kind: "customer" | "employee" }) {
             if (kind === "customer") {
               actions.createCustomer({
                 name: name.trim(),
+                profileNum: profileNum.trim() || undefined,
                 phone: phone.trim(),
+                email: email.trim(),
+                birthday,
+                comment: comment.trim(),
                 group,
                 discountPct: Number(discount) || 0,
               });
@@ -530,25 +957,45 @@ export function AddEntityModal({ kind }: { kind: "customer" | "employee" }) {
             <label className={LABEL}>Full Name *</label>
             <input type="text" required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Maria Clara Santos" className={INPUT} />
           </div>
+          {kind === "customer" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={LABEL}>Profile number</label>
+                <input type="text" value={profileNum} onChange={(event) => setProfileNum(event.target.value)} placeholder="Auto-generated" className={INPUT} />
+              </div>
+              <div>
+                <label className={LABEL}>Email</label>
+                <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={INPUT} />
+              </div>
+            </div>
+          )}
           <div>
             <label className={LABEL}>Phone Number</label>
             <input type="text" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="00639175550192" className={INPUT} />
           </div>
           {kind === "customer" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={LABEL}>Group</label>
-                <select value={group} onChange={(event) => setGroup(event.target.value)} className={INPUT}>
-                  <option value="VIP 10%">VIP 10%</option>
-                  <option value="Regular 5%">Regular 5%</option>
-                  <option value="Standard">Standard</option>
-                </select>
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={LABEL}>Group</label>
+                  <select value={group} onChange={(event) => setGroup(event.target.value)} className={INPUT}>
+                    {customerGroups.map((entry) => <option key={entry.id} value={entry.title}>{entry.title}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={LABEL}>Discount / Bonus %</label>
+                  <input type="number" min="0" max="100" value={discount} onChange={(event) => setDiscount(event.target.value)} className={`${INPUT} font-mono`} />
+                </div>
               </div>
               <div>
-                <label className={LABEL}>Discount %</label>
-                <input type="number" min="0" max="100" value={discount} onChange={(event) => setDiscount(event.target.value)} className={`${INPUT} font-mono`} />
+                <label className={LABEL}>Birthday</label>
+                <input type="date" value={birthday} onChange={(event) => setBirthday(event.target.value)} className={INPUT} />
               </div>
-            </div>
+              <div>
+                <label className={LABEL}>Comment</label>
+                <textarea value={comment} onChange={(event) => setComment(event.target.value)} rows={2} className={INPUT} />
+              </div>
+            </>
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -818,6 +1265,11 @@ export function ConsoleModals() {
       {state.activeModal === "subscription" && <SubscriptionModal />}
       {state.activeModal === "add-item" && <AddMenuItemModal />}
       {state.activeModal === "add-supply" && <AddSupplyModal />}
+      {state.activeModal === "add-butchery" && <AddButcheryModal />}
+      {state.activeModal === "add-transfer" && <AddTransferModal />}
+      {state.activeModal === "add-stock-deduction" && <AddStockDeductionModal />}
+      {state.activeModal === "add-waste-reason" && <AddWasteReasonModal />}
+      {state.activeModal === "add-inventory-check" && <AddInventoryCheckModal />}
       {state.activeModal === "add-tx" && <AddTransactionModal />}
       {state.activeModal === "add-account" && <AddAccountModal />}
       {state.activeModal === "add-finance-category" && <AddFinanceCategoryModal />}

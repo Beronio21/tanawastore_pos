@@ -46,7 +46,7 @@ export const NAV_SECTIONS: NavSection[] = [
       child("/manage/dash", "sales", "Sales"),
       child("/manage/dash", "customers", "Customers"),
       child("/manage/dash", "waiters", "Waiters"),
-      child("/manage/dash", "workshops", "Workshops"),
+      child("/manage/dash", "workshops", "Stations"),
       child("/manage/dash", "category", "Category"),
       child("/manage/dash", "products", "Products"),
       child("/manage/dash", "abc", "ABC-analysis"),
@@ -82,7 +82,7 @@ export const NAV_SECTIONS: NavSection[] = [
       child("/manage/menu", "foodcost_control", "Foodcost Control", "New"),
       child("/manage/menu", "categories_products", "Categories of products and dishes"),
       child("/manage/menu", "categories_ingredients", "Categories of ingredients"),
-      child("/manage/menu", "workshops", "Workshops"),
+      child("/manage/menu", "workshops", "Stations"),
     ],
   },
   {
@@ -90,16 +90,16 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Inventory",
     icon: Layers,
     children: [
-      child("/manage/calculations", "stock", "Stock"),
-      child("/manage/calculations", "supplies", "Supplies"),
-      child("/manage/calculations", "butcheries", "Butcheries"),
-      child("/manage/calculations", "transfers", "Transfers"),
-      child("/manage/calculations", "deductions", "Stock deductions"),
-      child("/manage/calculations", "movements", "Ingredients movements"),
-      child("/manage/calculations", "checks", "Inventory checks"),
-      child("/manage/calculations", "suppliers", "Suppliers"),
-      child("/manage/calculations", "storages", "Storage locations"),
-      child("/manage/calculations", "units", "Ordering units"),
+      child("/manage/inventory", "stock", "Stock"),
+      child("/manage/inventory", "supplies", "Supplies"),
+      child("/manage/inventory", "butcheries", "Butcheries"),
+      child("/manage/inventory", "transfers", "Transfers"),
+      child("/manage/inventory", "stock-deductions", "Stock deductions"),
+      child("/manage/inventory", "ingredients-movements", "Ingredients movements"),
+      child("/manage/inventory", "inventory-checks", "Inventory checks"),
+      child("/manage/inventory", "suppliers", "Suppliers"),
+      child("/manage/inventory", "storage-locations", "Storage locations"),
+      child("/manage/inventory", "ordering-units", "Ordering units"),
     ],
   },
   {
@@ -107,7 +107,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Marketing",
     icon: PieChart,
     children: [
-      child("/manage/marketing", "clients", "Clients"),
+      child("/manage/marketing", "clients", "Customers"),
       child("/manage/marketing", "groups", "Customer groups"),
       child("/manage/marketing", "loyalty", "Loyalty"),
       child("/manage/marketing", "exclusions", "Exclusions"),
@@ -153,6 +153,7 @@ export const NAV_SECTIONS: NavSection[] = [
 
 /** Resolve the current page label for the mobile header and breadcrumbs. */
 export function pageTitleForPath(pathname: string): string {
+  if (pathname.startsWith("/manage/access/tablets") || pathname.startsWith("/manage/access/pos")) return "Tablets";
   for (const section of NAV_SECTIONS) {
     if (section.href && pathname === section.href) return section.label;
     if (pathname.startsWith(`/manage/${section.id}`)) {

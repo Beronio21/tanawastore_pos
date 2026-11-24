@@ -87,7 +87,7 @@ The system replicates the layout, navigation hierarchy, and operational workflow
 
 #### 7. Access (`/manage/access/*`) — 6 Sub-Views
 
-- **Employees, User Sessions, Positions, Tablets, Locations, Integrations:** Role-based access control (`Owner`, `Manager`, `Cashier`, `Waiter`) with 4-digit PIN codes for rapid POS terminal switching.
+- **Employees, User Sessions, Positions, Tablets, Locations, Integrations:** Role-based access control (`Owner`, `Manager`, `Cashier`, `Waiter`) with 4-digit PIN codes for rapid POS terminal switching. Locations configure the register login, working hours, bank/cash/safe accounts, and inventory storage locations; POS proceeds and stock deductions use the configured location.
 
 #### 8. Applications (`/manage/applications`)
 
