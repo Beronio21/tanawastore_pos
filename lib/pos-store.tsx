@@ -17,6 +17,7 @@ import {
   floorTableName,
   getActivePromotions,
   getExcludedMenuItemIds,
+  posPricingRules,
   type ConsoleModal,
   type ConsoleState,
   type Customer,
@@ -47,7 +48,20 @@ import {
   type OrderingUnit,
   type BusinessLocation,
   type ToastKind,
+  type AttachedCard,
+  type BillingDetails,
+  type PosPaymentType,
+  type DeliverySettings,
+  type SecuritySettings,
+  type ReceiptSettings,
 } from "./console-data";
+import {
+  customerGroupDiscountRate,
+  inventoryDiscrepancy,
+  maxCashBack,
+  resolveLoyaltyGroup,
+  weightedAverageCost,
+} from "./business-math";
 import { formatTime, formatTimestamp } from "./format";
 
 const STORAGE_KEY = "tanawastore_pos_v1";
@@ -60,11 +74,7 @@ function uid(prefix: string): string {
 }
 
 function customerDiscountRate(state: ConsoleState, customer: Customer): number {
-  const group = state.customerGroups.find((entry) => entry.title === customer.group);
-  if (group) {
-    return !group.deleted && group.loyaltyProgram === "Discount system" ? group.rate : 0;
-  }
-  return customer.discountPct;
+  return customerGroupDiscountRate(state.customerGroups, customer);
 }
 
 type NewMenuItem = {
@@ -84,6 +94,8 @@ type NewCustomer = {
   phone?: string;
   email?: string;
   birthday?: string;
+  address?: string;
+  gender?: string;
   comment?: string;
   group?: string;
   discountPct?: number;
@@ -155,6 +167,11 @@ type NewInventoryCheck = {
 };
 
 type SupplierInput = Omit<Supplier, "id">;
+type OrderSourceInput = { title: string; displayOnPos: boolean; serviceFeePct: number };
+type PaymentMethodInput = { title: string; paymentType: PosPaymentType; serviceFeePct: number | null; displayedOnPos: boolean };
+type DeliverySettingsInput = DeliverySettings;
+type SecuritySettingsInput = SecuritySettings;
+type ReceiptSettingsInput = ReceiptSettings;
 type StorageLocationInput = Omit<StorageLocation, "id">;
 type OrderingUnitInput = Omit<OrderingUnit, "id">;
 
@@ -184,6 +201,10 @@ type Actions = {
   setOrderDiscount: (tabId: string, pct: number) => void;
   addItemToOrder: (menuItemId: string) => void;
   updateOrderItemQty: (lineUid: string, delta: number) => void;
+  removeOrderLines: (uids: string[]) => void;
+  clearOrderItems: () => void;
+  setOrderNote: (note: string) => void;
+  refundReceipt: (receiptNum: number) => void;
   sendOrderToKitchen: (tabId: string) => void;
   bumpKdsTicket: (ticketId: string) => void;
   setPosPayMethod: (method: PaymentMethod) => void;
@@ -240,13 +261,28 @@ type Actions = {
   removeExcludedCategory: (id: string) => void;
   addExcludedProduct: (id: string) => void;
   removeExcludedProduct: (id: string) => void;
-  createCustomer: (input: NewCustomer) => void;
+  createCustomer: (input: NewCustomer) => string;
   updateCustomer: (id: string, input: NewCustomer) => void;
   createEmployee: (input: NewEmployee) => void;
   updateEmployee: (id: string, input: NewEmployee) => void;
   resendEmployeeInvitation: (id: string) => void;
   revokeEmployeeInvitation: (id: string) => void;
   terminateUserSession: (id: string) => void;
+  createIntegrationToken: () => void;
+  toggleIntegration: (id: string) => void;
+  payPendingInvoice: () => void;
+  attachPaymentCard: (card: AttachedCard) => void;
+  saveBillingDetails: (details: BillingDetails) => void;
+  setOrderSource: (tabId: string, source: string) => void;
+  saveOrderSource: (id: string | null, input: OrderSourceInput) => void;
+  toggleOrderSourcePos: (id: string) => void;
+  savePaymentMethodConfig: (id: string | null, input: PaymentMethodInput) => void;
+  togglePaymentMethodPos: (id: string) => void;
+  setOrderDelivery: (tabId: string, area: string) => void;
+  saveDeliverySettings: (settings: DeliverySettingsInput) => void;
+  saveSecuritySettings: (settings: SecuritySettingsInput) => void;
+  saveReceiptSettings: (settings: ReceiptSettingsInput) => void;
+  verifyAdminPassword: (password: string) => boolean;
   savePosition: (id: string | null, input: PositionInput) => void;
   duplicatePosition: (id: string) => void;
   deletePosition: (id: string) => void;
@@ -273,6 +309,7 @@ function persistable(state: ConsoleState): ConsoleState {
 
 export function PosStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<ConsoleState>(INITIAL_CONSOLE_STATE);
+  const [hydrated, setHydrated] = useState(false);
   const stateRef = useRef(state);
   const hydratedRef = useRef(false);
 
@@ -291,6 +328,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
 
   // Restore the saved demo state after mount so server HTML stays deterministic.
   useEffect(() => {
+    let merged: ConsoleState | null = null;
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       if (raw) {
@@ -298,24 +336,48 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         const savedPositions = Array.isArray(parsed.positions) && parsed.positions.length > 0 && typeof parsed.positions[0] === "string"
           ? structuredClone(INITIAL_CONSOLE_STATE.positions)
           : parsed.positions;
-        const merged: ConsoleState = {
+        merged = {
           ...structuredClone(INITIAL_CONSOLE_STATE),
           ...parsed,
+          settings: { ...structuredClone(INITIAL_CONSOLE_STATE.settings), ...(parsed.settings ?? {}) },
           positions: savedPositions ?? structuredClone(INITIAL_CONSOLE_STATE.positions),
           toasts: [],
           activeModal: null,
           receiptPreview: null,
         };
-        queueMicrotask(() => {
-          setState(merged);
-          stateRef.current = merged;
-        });
+        const highestReceiptNum = Math.max(
+          0,
+          ...(merged.posOrders ?? []).map((order) => order.receiptNum),
+          ...(merged.receipts ?? []).map((receipt) => receipt.receiptNum),
+        );
+        if ((merged.nextReceiptNum ?? 0) <= highestReceiptNum) {
+          merged.nextReceiptNum = highestReceiptNum + 1;
+        }
       }
     } catch {
       // Corrupted demo data — fall back to the fresh seed.
     }
-    hydratedRef.current = true;
+    queueMicrotask(() => {
+      const restored = merged;
+      if (restored) {
+        setState(restored);
+        stateRef.current = restored;
+      }
+      // Only persist after the restore so the seed cannot clobber saved state.
+      hydratedRef.current = true;
+      setHydrated(true);
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable(restored ?? stateRef.current)));
+      } catch {
+        // Storage can be unavailable in private mode.
+      }
+    });
   }, []);
+
+  // Readiness marker for automation; set after the restored state has rendered.
+  useEffect(() => {
+    if (hydrated) document.documentElement.dataset.storeHydrated = "true";
+  }, [hydrated]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -363,6 +425,9 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
   const actions = useMemo<Actions>(() => {
     const getOrder = (s: ConsoleState, tabId?: string) =>
       s.posOrders.find((order) => order.id === (tabId ?? s.activePosOrderId)) ?? s.posOrders[0];
+
+    const defaultSource = (s: ConsoleState) =>
+      s.orderSources?.find((source) => source.displayOnPos)?.title ?? "Dine-in";
 
     const addMovement = (draft: ConsoleState, movement: StockMovement) => {
       draft.stockMovements.unshift(movement);
@@ -428,6 +493,37 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           title: stock.title,
           reason,
           delta: -used,
+          unit: stock.unit,
+        });
+      });
+    };
+
+    const restockRecipe = (
+      draft: ConsoleState,
+      recipe: MenuItem["recipe"],
+      qty: number,
+      reason: string,
+      time: string,
+      preferredLocations: string[],
+    ) => {
+      recipe.forEach((line) => {
+        if (line.prepId) {
+          const prep = draft.preparations.find((entry) => entry.id === line.prepId);
+          if (prep) restockRecipe(draft, prep.recipe, line.qty * qty, reason, time, preferredLocations);
+          return;
+        }
+        if (!line.stockId) return;
+        const stock = draft.stockItems.find((item) => item.id === line.stockId);
+        if (!stock) return;
+        const restored = line.qty * qty;
+        stock.stock += restored;
+        const preferredStorage = preferredLocations[0] ?? draft.storageLocations[0] ?? "Storage 1";
+        changeStorageQty(draft, stock.id, preferredStorage, restored, preferredLocations);
+        addMovement(draft, {
+          time,
+          title: stock.title,
+          reason,
+          delta: restored,
           unit: stock.unit,
         });
       });
@@ -517,6 +613,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
             id: `ord-${num}`,
             receiptNum: num,
             tableId,
+            source: defaultSource(draft),
             guests: 1,
             staffId: draft.currentStaffId,
             customerId: "",
@@ -544,6 +641,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
               id: `ord-${num}`,
               receiptNum: num,
               tableId: "TAKEAWAY",
+              source: defaultSource(draft),
               guests: 1,
               staffId: draft.currentStaffId,
               customerId: "",
@@ -618,6 +716,77 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           if (order.items[index].qty <= 0) order.items.splice(index, 1);
         }),
 
+      removeOrderLines: (uids) =>
+        update((draft) => {
+          const order = getOrder(draft);
+          if (!order) return;
+          const remove = new Set(uids);
+          order.items = order.items.filter((line) => !remove.has(line.uid));
+        }),
+
+      clearOrderItems: () =>
+        update((draft) => {
+          const order = getOrder(draft);
+          if (order) order.items = [];
+        }),
+
+      setOrderNote: (note) =>
+        update((draft) => {
+          const order = getOrder(draft);
+          if (order) order.note = note;
+        }),
+
+      refundReceipt: (receiptNum) => {
+        const snapshot = stateRef.current;
+        const receipt = snapshot.receipts.find((entry) => entry.receiptNum === receiptNum && !entry.refunded);
+        if (!receipt) {
+          showToast("Receipt not found or already refunded.", "info");
+          return;
+        }
+        const time = formatTimestamp();
+        const registerLocation = snapshot.registers[0]?.location;
+        const saleLocation = snapshot.locations.find((entry) =>
+          entry.id === registerLocation || entry.name === registerLocation,
+        ) ?? snapshot.locations[0];
+        const deductionStorages = saleLocation?.storageLocations ?? [];
+        update((draft) => {
+          const draftReceipt = draft.receipts.find((entry) => entry.receiptNum === receiptNum && !entry.refunded);
+          if (!draftReceipt) return;
+          draftReceipt.refunded = true;
+
+          draftReceipt.items.forEach((line) => {
+            const menuItem = draft.menuItems.find((entry) => entry.id === line.menuId);
+            if (!menuItem) return;
+            restockRecipe(
+              draft,
+              menuItem.recipe,
+              line.qty,
+              `Refund Receipt #${receiptNum} (${menuItem.title})`,
+              time,
+              deductionStorages,
+            );
+          });
+
+          const accountId = draftReceipt.paymentMethod === "Cash" ? saleLocation?.cashAccountId : saleLocation?.bankAccountId;
+          const account = draft.accounts.find((entry) => entry.id === accountId) ??
+            (draftReceipt.paymentMethod === "Cash"
+              ? draft.accounts.find((entry) => entry.isCashDrawer)
+              : draft.accounts.find((entry) => entry.id === "acc-bank"));
+          if (account) account.balance -= draftReceipt.total;
+
+          draft.transactions.unshift({
+            id: uid("tx-refund"),
+            date: formatTimestamp(new Date()),
+            type: "expense",
+            category: "POS Refunds",
+            comment: `Refund Receipt #${receiptNum} (${draftReceipt.tableName})`,
+            sum: draftReceipt.total,
+            account: accountDisplayName(account, draft.settings.companyName),
+          });
+        });
+        showToast(`Receipt #${receiptNum} refunded — stock restored.`, "success");
+      },
+
       sendOrderToKitchen: (tabId) => {
         const order = getOrder(stateRef.current, tabId);
         if (!order) return;
@@ -681,16 +850,23 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           getExcludedMenuItemIds(snapshot.menuItems, snapshot.menuCategories, snapshot.excludedCategoryIds, snapshot.excludedProductIds),
           promotion,
           snapshot.menuCategories,
+          posPricingRules(snapshot.settings),
         );
         const saleCustomer = snapshot.customers.find((entry) => entry.id === order.customerId);
-        const maxCashBack = saleCustomer
-          ? Math.min(
+        const cashBackLimit = saleCustomer
+          ? maxCashBack(
               saleCustomer.bonusBalance ?? 0,
-              totals.cashBackEligibleTotal * Math.max(0, Math.min(100, snapshot.loyaltySettings.maximumPct)) / 100,
+              totals.cashBackEligibleTotal,
+              snapshot.loyaltySettings.maximumPct,
             )
           : 0;
-        const cashBackRedeemed = Math.max(0, Math.min(requestedCashBack, maxCashBack));
-        const amountDue = Math.max(0, totals.total - cashBackRedeemed);
+        const cashBackRedeemed = Math.max(0, Math.min(requestedCashBack, cashBackLimit));
+        const deliveryArea = order.deliveryArea
+          ? snapshot.deliverySettings?.areas.find((area) => area.name === order.deliveryArea)
+          : undefined;
+        const deliveryFee = deliveryArea?.cost ?? 0;
+        const grandTotal = totals.total + deliveryFee;
+        const amountDue = Math.max(0, grandTotal - cashBackRedeemed);
         const employee = snapshot.employees.find((entry) => entry.id === snapshot.currentStaffId) ?? snapshot.employees[0];
         const tableName = floorTableName(order.tableId);
         const registerLocation = snapshot.registers[0]?.location;
@@ -709,13 +885,21 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           tableName,
           openedAt: order.openedAt || time,
           closedAt: time,
+          closedDate: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`,
           paymentMethod: method,
           subtotal: totals.subtotal,
           discountAmt: totals.discountAmt,
           tax: totals.tax,
           profit,
-          total: totals.total,
+          total: grandTotal,
           cashBackRedeemed,
+          serviceCharge: totals.serviceCharge,
+          deliveryArea: deliveryArea?.name,
+          deliveryFee: deliveryFee || undefined,
+          comment: order.note?.trim() || undefined,
+          customerName: saleCustomer?.name,
+          customerPhone: saleCustomer?.phone || undefined,
+          customerAddress: saleCustomer?.address || undefined,
           promotionTitle: promotion?.title,
           promotionDiscountAmt: totals.promotionDiscountAmt,
           promotionBonus: totals.promotionBonus,
@@ -749,7 +933,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           if (draftOrder.customerId) {
             const customer = draft.customers.find((entry) => entry.id === draftOrder.customerId);
             if (customer) {
-              customer.overallSum += totals.total;
+              customer.overallSum += grandTotal;
               if (method === "Cash") customer.cashSum += amountDue;
               else customer.cardSum += amountDue;
               customer.receiptCount += 1;
@@ -764,17 +948,14 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
               const eligibleConditions = [
                 ...(draft.loyaltySettings.cashBackTransition === "yes" ? draft.loyaltySettings.cashBackConditions : []),
                 ...(draft.loyaltySettings.discountTransition === "yes" ? draft.loyaltySettings.discountConditions : []),
-              ]
-                .filter((condition) => condition.groupId && condition.threshold > 0 && condition.threshold <= customer.overallSum)
-                .sort((left, right) => right.threshold - left.threshold);
-              const transition = eligibleConditions
-                .map((condition) => ({
-                  condition,
-                  group: draft.customerGroups.find((entry) => !entry.deleted && entry.id === condition.groupId),
-                }))
-                .find((entry) => entry.group);
-              if (transition?.group) {
-                customer.group = transition.group.title;
+              ];
+              const transitionGroup = resolveLoyaltyGroup(
+                customer.overallSum,
+                draft.customerGroups,
+                eligibleConditions,
+              );
+              if (transitionGroup) {
+                customer.group = transitionGroup.title;
                 draft.posOrders.forEach((activeOrder) => {
                   if (activeOrder.customerId === customer.id) {
                     activeOrder.discountPct = customerDiscountRate(draft, customer);
@@ -809,12 +990,13 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           draft.receiptPreview = receipt;
 
           draft.posOrders = draft.posOrders.filter((entry) => entry.id !== draftOrder.id);
-          if (draft.posOrders.length === 0) {
+          if (draft.posOrders.length === 0 || !draft.settings.showFloorPlan) {
             const num = draft.nextReceiptNum++;
             const fresh = {
               id: `ord-${num}`,
               receiptNum: num,
               tableId: "TAKEAWAY",
+              source: defaultSource(draft),
               guests: 1,
               staffId: draft.currentStaffId,
               customerId: "",
@@ -1013,10 +1195,9 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         update((draft) => {
           const draftStock = draft.stockItems.find((item) => item.id === stockId);
           if (!draftStock) return;
-          const previousValue = draftStock.stock * draftStock.cost;
           changeStorageQty(draft, draftStock.id, draft.storageLocations[0] ?? "Storage 1", qty);
+          draftStock.cost = weightedAverageCost(draftStock.stock, draftStock.cost, qty, unitCost);
           draftStock.stock += qty;
-          draftStock.cost = draftStock.stock > 0 ? (previousValue + qty * unitCost) / draftStock.stock : unitCost;
           addMovement(draft, {
             time: formatTime(),
             title: draftStock.title,
@@ -1062,12 +1243,9 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           for (const line of lines) {
             const draftStock = draft.stockItems.find((item) => item.id === line.stockId);
             if (!draftStock) continue;
-            const previousValue = draftStock.stock * draftStock.cost;
             changeStorageQty(draft, draftStock.id, input.storage || "Storage 1", line.quantity);
+            draftStock.cost = weightedAverageCost(draftStock.stock, draftStock.cost, line.quantity, line.cost);
             draftStock.stock += line.quantity;
-            draftStock.cost = draftStock.stock > 0
-              ? (previousValue + line.quantity * line.cost) / draftStock.stock
-              : line.cost;
             addMovement(draft, {
               time: formatTime(),
               title: draftStock.title,
@@ -1265,8 +1443,9 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           for (const line of input.lines) {
             const item = draft.stockItems.find((entry) => entry.id === line.stockId);
             if (!item) continue;
-            const discrepancyQty = line.actual - line.expected;
-            const discrepancyValue = discrepancyQty * item.cost;
+            const discrepancy = inventoryDiscrepancy(line.actual, line.expected, item.cost);
+            const discrepancyQty = discrepancy.qty;
+            const discrepancyValue = discrepancy.value;
             changeStorageQty(draft, item.id, input.storage, discrepancyQty);
             item.stock = Math.max(0, item.stock + discrepancyQty);
             totalValue += discrepancyValue;
@@ -1651,18 +1830,23 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         phone = "",
         email = "",
         birthday = "",
+        address = "",
+        gender = "",
         comment = "",
         group = "",
         discountPct = 0,
       }) => {
+        const newId = uid("cust");
         update((draft) => {
           const customer: Customer = {
-            id: uid("cust"),
+            id: newId,
             name,
             profileNum: profileNum?.trim() || `C-${1000 + draft.customers.length + 1}`,
             phone,
             email,
             birthday,
+            address: address || undefined,
+            gender: gender || undefined,
             comment,
             group: group || draft.customerGroups.find((entry) => !entry.deleted)?.title || "New customers",
             discountPct,
@@ -1675,6 +1859,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           draft.customers.push(customer);
         });
         showToast(`Customer "${name}" added!`, "success");
+        return newId;
       },
 
       updateCustomer: (id, input) => {
@@ -1688,6 +1873,8 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           customer.phone = input.phone?.trim() ?? "";
           customer.email = input.email?.trim() ?? "";
           customer.birthday = input.birthday ?? "";
+          customer.address = input.address?.trim() || undefined;
+          customer.gender = input.gender || undefined;
           customer.comment = input.comment?.trim() ?? "";
           customer.group = input.group ?? "Standard";
           customer.discountPct = input.discountPct ?? 0;
@@ -1764,6 +1951,200 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           draft.userSessions = draft.userSessions.filter((session) => session.id !== id);
         });
         showToast("User session terminated.", "info");
+      },
+
+      createIntegrationToken: () => {
+        const current = stateRef.current;
+        const employee = current.employees.find((entry) => entry.id === current.currentStaffId) ?? current.employees[0];
+        const token = `305637:${Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join("")}`;
+        const createdAt = new Date().toLocaleString("en-US", {
+          month: "numeric",
+          day: "2-digit",
+          year: "2-digit",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+        update((draft) => {
+          draft.integrations.unshift({
+            id: uid("integration"),
+            employeeId: employee?.id ?? "",
+            employeeName: employee?.name ?? "Unknown",
+            application: "Personal integration",
+            token,
+            masked: false,
+            createdAt,
+            active: true,
+          });
+        });
+        showToast("Personal integration token generated.", "success");
+      },
+
+      toggleIntegration: (id) => {
+        const integration = stateRef.current.integrations.find((entry) => entry.id === id);
+        if (!integration) return;
+        const nextActive = !integration.active;
+        update((draft) => {
+          const entry = draft.integrations.find((item) => item.id === id);
+          if (entry) entry.active = nextActive;
+        });
+        showToast(`${integration.application} ${nextActive ? "activated" : "deactivated"}.`, nextActive ? "success" : "info");
+      },
+
+      payPendingInvoice: () => {
+        const invoice = stateRef.current.pendingInvoice;
+        if (!invoice) return;
+        const now = formatTimestamp();
+        update((draft) => {
+          draft.paidInvoices.unshift({
+            id: uid("pinv"),
+            number: invoice.number,
+            created: invoice.created,
+            paid: now,
+            amount: invoice.amount,
+          });
+          draft.pendingInvoice = null;
+          draft.subscriptionStatus = "Paid";
+        });
+        showToast(`Invoice #${invoice.number} paid — subscription activated.`, "success");
+      },
+
+      attachPaymentCard: (card) => {
+        update((draft) => {
+          draft.attachedCard = card;
+        });
+        showToast(`${card.brand} •••• ${card.last4} attached.`, "success");
+      },
+
+      saveBillingDetails: (details) => {
+        update((draft) => {
+          draft.billingDetails = { ...details };
+        });
+        showToast("Billing details saved.", "success");
+      },
+
+      setOrderSource: (tabId, source) => {
+        update((draft) => {
+          const order = draft.posOrders.find((entry) => entry.id === tabId);
+          if (order) order.source = source;
+        });
+      },
+
+      saveOrderSource: (id, input) => {
+        const title = input.title.trim();
+        if (!title) {
+          showToast("Order source title is required.", "info");
+          return;
+        }
+        if (stateRef.current.orderSources.some((source) => source.id !== id && source.title.toLowerCase() === title.toLowerCase())) {
+          showToast(`Order source "${title}" already exists.`, "info");
+          return;
+        }
+        update((draft) => {
+          const existing = id ? draft.orderSources.find((source) => source.id === id) : undefined;
+          if (existing) {
+            existing.title = title;
+            existing.displayOnPos = input.displayOnPos;
+            existing.serviceFeePct = Math.max(0, input.serviceFeePct || 0);
+          } else {
+            draft.orderSources.push({
+              id: uid("os"),
+              title,
+              displayOnPos: input.displayOnPos,
+              serviceFeePct: Math.max(0, input.serviceFeePct || 0),
+            });
+          }
+        });
+        showToast(`Order source "${title}" saved.`, "success");
+      },
+
+      toggleOrderSourcePos: (id) => {
+        const source = stateRef.current.orderSources.find((entry) => entry.id === id);
+        if (!source) return;
+        const next = !source.displayOnPos;
+        update((draft) => {
+          const entry = draft.orderSources.find((item) => item.id === id);
+          if (entry) entry.displayOnPos = next;
+        });
+        showToast(`"${source.title}" ${next ? "will" : "will not"} display on the POS.`, "info");
+      },
+
+      savePaymentMethodConfig: (id, input) => {
+        const title = input.title.trim();
+        if (!title) {
+          showToast("Method title is required.", "info");
+          return;
+        }
+        if (stateRef.current.paymentMethods.some((method) => method.id !== id && method.title.toLowerCase() === title.toLowerCase())) {
+          showToast(`Payment method "${title}" already exists.`, "info");
+          return;
+        }
+        const serviceFeePct = input.serviceFeePct === null ? null : Math.max(0, input.serviceFeePct || 0);
+        update((draft) => {
+          const existing = id ? draft.paymentMethods.find((method) => method.id === id) : undefined;
+          if (existing) {
+            existing.title = title;
+            existing.paymentType = input.paymentType;
+            existing.serviceFeePct = serviceFeePct;
+            existing.displayedOnPos = input.displayedOnPos;
+          } else {
+            draft.paymentMethods.push({
+              id: uid("pm"),
+              title,
+              paymentType: input.paymentType,
+              icon: input.paymentType === "Cash" ? "cash" : input.paymentType === "Cashless" ? "card" : "gift",
+              serviceFeePct,
+              displayedOnPos: input.displayedOnPos,
+            });
+          }
+        });
+        showToast(`Payment method "${title}" saved.`, "success");
+      },
+
+      togglePaymentMethodPos: (id) => {
+        const method = stateRef.current.paymentMethods.find((entry) => entry.id === id);
+        if (!method) return;
+        const next = !method.displayedOnPos;
+        update((draft) => {
+          const entry = draft.paymentMethods.find((item) => item.id === id);
+          if (entry) entry.displayedOnPos = next;
+        });
+        showToast(`"${method.title}" ${next ? "will" : "will not"} display on the POS.`, "info");
+      },
+
+      setOrderDelivery: (tabId, area) => {
+        update((draft) => {
+          const tab = draft.posOrders.find((item) => item.id === tabId);
+          if (tab) tab.deliveryArea = area || undefined;
+        });
+      },
+
+      saveDeliverySettings: (settings) => {
+        update((draft) => {
+          draft.deliverySettings = settings;
+        });
+        showToast("Delivery settings saved.", "success");
+      },
+
+      saveSecuritySettings: (settings) => {
+        update((draft) => {
+          draft.securitySettings = settings;
+        });
+        showToast("Security settings saved.", "success");
+      },
+
+      saveReceiptSettings: (settings) => {
+        update((draft) => {
+          draft.receiptSettings = settings;
+        });
+        showToast("Receipt settings saved.", "success");
+      },
+
+      verifyAdminPassword: (password) => {
+        const expected = stateRef.current.securitySettings?.adminPassword ?? "";
+        if (password === expected) return true;
+        showToast("Incorrect admin password.", "info");
+        return false;
       },
 
       savePosition: (id, input) => {

@@ -8,6 +8,8 @@
 export type MenuItemType = "Product" | "Dish";
 export type PaymentMethod = "Cash" | "Card" | "e-Wallet";
 export type FinanceCategoryFlag = "displayOnPos" | "includeInPnl";
+export type ServiceChargeFee = "Don't use" | "5%" | "10%";
+export type LowStockAlert = "Do not notify" | "Daily digest" | "Immediate";
 
 export type LocationSettings = {
   companyName: string;
@@ -21,8 +23,15 @@ export type LocationSettings = {
   vatRate: number;
   showFloorPlan: boolean;
   quickWaitersChange: boolean;
+  enablePartialServing: boolean;
+  roundOrderPrice: boolean;
+  serviceChargeFee: ServiceChargeFee;
   cashRegisterShifts: boolean;
+  useTaxes: boolean;
+  useManufacturing: boolean;
   payrollTracking: boolean;
+  lowStockAlert: LowStockAlert;
+  logo: string;
 };
 
 export type Employee = {
@@ -92,6 +101,20 @@ export type UserSession = {
   loginTime: string;
 };
 
+export type IntegrationPosFeature = "inventory-check" | "supply";
+
+export type Integration = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  application: string;
+  token: string;
+  masked: boolean;
+  createdAt: string;
+  active: boolean;
+  posFeature?: IntegrationPosFeature;
+};
+
 export type Register = {
   id: string;
   number: number;
@@ -150,6 +173,8 @@ export type MenuItem = {
   category: string;
   station: string;
   emoji: string;
+  /** Optional SKU/barcode used by the POS quick-scan. */
+  sku?: string;
   /** Cost of the recipe/BOM without VAT. */
   cost: number;
   price: number;
@@ -184,6 +209,8 @@ export type Customer = {
   phone: string;
   email?: string;
   birthday?: string;
+  address?: string;
+  gender?: string;
   comment?: string;
   group: string;
   discountPct: number;
@@ -246,6 +273,8 @@ export type Receipt = {
   tableName: string;
   openedAt: string;
   closedAt: string;
+  /** Local sale date (`YYYY-MM-DD`) used by the Sales Report time series. */
+  closedDate?: string;
   paymentMethod: PaymentMethod;
   subtotal: number;
   discountAmt: number;
@@ -253,13 +282,89 @@ export type Receipt = {
   profit: number;
   total: number;
   cashBackRedeemed?: number;
+  serviceCharge?: number;
+  deliveryArea?: string;
+  deliveryFee?: number;
   promotionTitle?: string;
   promotionDiscountAmt?: number;
   promotionBonus?: number;
+  comment?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerAddress?: string;
+  refunded?: boolean;
   items: ReceiptItem[];
   tendered?: number;
   change?: number;
 };
+
+export type ReceiptReportStatus = "Open" | "Close";
+
+/**
+ * Unified row for Reports -> Receipts. Open rows come from the live POS checks,
+ * closed rows from the receipt journal, so the table can show both at once.
+ */
+export type ReceiptReportRow = {
+  key: string;
+  number: number;
+  waiter: string;
+  openedAt: string;
+  closedAt: string;
+  paid: number;
+  discount: number;
+  profit: number;
+  status: ReceiptReportStatus;
+  paymentMethod: string;
+  subtotal: number;
+  tax: number;
+  serviceCharge: number;
+  cashBack: number;
+  items: ReceiptItem[];
+};
+
+/**
+ * Poster's demo account ships with two anchor receipts so Reports -> Receipts
+ * mirrors the reference screen before the first live check is closed.
+ */
+export function seedReceiptReportRows(now: Date = new Date()): ReceiptReportRow[] {
+  const day = `${now.getDate()} ${now.toLocaleDateString("en-GB", { month: "long" })}`;
+  return [
+    {
+      key: "seed-receipt-2",
+      number: 2,
+      waiter: "Philip Venje Beronio",
+      openedAt: `${day}, 9:32 am`,
+      closedAt: "",
+      paid: 45,
+      discount: 0,
+      profit: 33,
+      status: "Open",
+      paymentMethod: "Cash",
+      subtotal: 45,
+      tax: 0,
+      serviceCharge: 0,
+      cashBack: 0,
+      items: [{ menuId: "prod-2", name: "Capucino 250ml", qty: 1, unitPrice: 45 }],
+    },
+    {
+      key: "seed-receipt-1",
+      number: 1,
+      waiter: "Philip Venje Beronio",
+      openedAt: `${day}, 9:31 am`,
+      closedAt: "9:32 am",
+      paid: 0,
+      discount: 64,
+      profit: -7.82,
+      status: "Close",
+      paymentMethod: "Cash",
+      subtotal: 64,
+      tax: 0,
+      serviceCharge: 0,
+      cashBack: 0,
+      items: [{ menuId: "prod-3", name: "Croissant with chocolate", qty: 1, unitPrice: 64 }],
+    },
+  ];
+}
 
 export type FinanceAccount = {
   id: string;
@@ -432,6 +537,30 @@ export type GuestFeedback = {
   time: string;
 };
 
+export type OrderSource = {
+  id: string;
+  title: string;
+  displayOnPos: boolean;
+  serviceFeePct: number;
+};
+
+export type PosPaymentType = "Cash" | "Cashless" | "Other";
+export type PaymentMethodIcon = "cash" | "card" | "gift" | "wallet" | "muted";
+
+export type PaymentMethodConfig = {
+  id: string;
+  title: string;
+  paymentType: PosPaymentType;
+  icon: PaymentMethodIcon;
+  /** null renders as an em dash (no service fee configured). */
+  serviceFeePct: number | null;
+  displayedOnPos: boolean;
+  systemLocked?: boolean;
+  muted?: boolean;
+  canEdit?: boolean;
+  hasMenu?: boolean;
+};
+
 export type PosOrderItem = {
   uid: string;
   menuId: string;
@@ -441,10 +570,70 @@ export type PosOrderItem = {
   sent: boolean;
 };
 
+export type DeliveryArea = {
+  id: string;
+  name: string;
+  cost: number;
+  serviceTimeMin: number;
+};
+
+export type FiscalReceiptMode = "During payment" | "Upon delivery" | "When creating an order" | "Don't print";
+
+export type DeliverySettings = {
+  enabled: boolean;
+  orderStatuses: { ready: boolean; delivered: boolean };
+  fiscalReceipt: FiscalReceiptMode;
+  areas: DeliveryArea[];
+};
+
+export type ReceiptLanguage = "Account language" | "English" | "Filipino";
+export type PrintOnReceipt = "Company name" | "Business name";
+
+export type ReceiptSettings = {
+  autoPrint: boolean;
+  printReceiptNumber: boolean;
+  printComments: boolean;
+  printCustomerContact: boolean;
+  printPredictions: boolean;
+  predictions: string[];
+  printWifi: boolean;
+  wifiName: string;
+  wifiPassword: string;
+  printAddress: boolean;
+  receiptLanguage: ReceiptLanguage;
+  printOnReceipt: PrintOnReceipt;
+};
+
+export type AdminPasswordRule = "Always" | "After a check is printed" | "In cases..." | "Never";
+
+export type SecuritySettings = {
+  adminPassword: string;
+  blockPrintBeforeClose: boolean;
+  printTwoReceipts: boolean;
+  magneticCardCustomer: boolean;
+  autoKitchenTickets: "Never" | "When printing a check" | "When closing an order";
+  kitchenTicketsAnyRegister: "Never" | "Always";
+  adminRules: {
+    deleteItem: AdminPasswordRule;
+    deleteItemCases: { afterCheckPrinted: boolean; afterTicketPrinted: boolean };
+    addDiscount: AdminPasswordRule;
+    cancelPromotion: AdminPasswordRule;
+    runReport: AdminPasswordRule;
+    splitOrder: AdminPasswordRule;
+    closeReceipt: AdminPasswordRule;
+    addCustomer: AdminPasswordRule;
+    viewOrdersHistory: AdminPasswordRule;
+    addSupplyTablet: AdminPasswordRule;
+    viewDevices: AdminPasswordRule;
+  };
+};
+
 export type PosOrderTab = {
   id: string;
   receiptNum: number;
   tableId: string;
+  source?: string;
+  deliveryArea?: string;
   guests: number;
   staffId: string;
   customerId: string;
@@ -468,6 +657,39 @@ export type OnboardingProgress = {
   createdItem: boolean;
   madeSale: boolean;
   viewedReports: boolean;
+};
+
+export type PendingInvoice = {
+  id: string;
+  number: string;
+  item: string;
+  qty: number;
+  amount: number;
+  payBy: string;
+  created: string;
+};
+
+export type PaidInvoice = {
+  id: string;
+  number: string;
+  created: string;
+  paid: string;
+  amount: number;
+};
+
+export type BillingDetails = {
+  taxId: string;
+  companyName: string;
+  registeredAddress: string;
+  postalCode: string;
+  phone: string;
+  email: string;
+};
+
+export type AttachedCard = {
+  brand: string;
+  last4: string;
+  name: string;
 };
 
 export type CashFlowRowKey = "begin" | "end" | "net";
@@ -517,6 +739,7 @@ export type ConsoleState = {
   positions: PositionRole[];
   employeeInvitations: EmployeeInvitation[];
   userSessions: UserSession[];
+  integrations: Integration[];
   accessLocations: string[];
   locations: BusinessLocation[];
   registers: Register[];
@@ -552,6 +775,16 @@ export type ConsoleState = {
   activePosOrderId: string;
   kdsTickets: KdsTicket[];
   posPayMethod: PaymentMethod;
+  subscriptionStatus: "Trial" | "Paid";
+  pendingInvoice: PendingInvoice | null;
+  paidInvoices: PaidInvoice[];
+  billingDetails: BillingDetails;
+  attachedCard: AttachedCard | null;
+  orderSources: OrderSource[];
+  paymentMethods: PaymentMethodConfig[];
+  deliverySettings: DeliverySettings;
+  securitySettings: SecuritySettings;
+  receiptSettings: ReceiptSettings;
 };
 
 export type FloorTable = { id: string; name: string; seats: number };
@@ -565,6 +798,7 @@ export type OrderTotals = {
   cashBackEligibleTotal: number;
   promotionDiscountAmt: number;
   promotionBonus: number;
+  serviceCharge: number;
 };
 
 export const VAT_RATE = 0.12;
@@ -597,9 +831,10 @@ export function calcOrderTotals(
   excludedMenuItemIds: string[] = [],
   promotion?: Promotion,
   categories: MenuCategory[] = [],
+  posRules: { serviceChargePct?: number; roundOrderPrice?: boolean } = {},
 ): OrderTotals {
   if (!order) {
-    return { subtotal: 0, discountAmt: 0, tax: 0, total: 0, costTotal: 0, cashBackEligibleTotal: 0, promotionDiscountAmt: 0, promotionBonus: 0 };
+    return { subtotal: 0, discountAmt: 0, tax: 0, total: 0, costTotal: 0, cashBackEligibleTotal: 0, promotionDiscountAmt: 0, promotionBonus: 0, serviceCharge: 0 };
   }
   const excludedIds = new Set(excludedMenuItemIds);
   const menuItemById = new Map(menuItems.map((item) => [item.id, item]));
@@ -646,7 +881,19 @@ export function calcOrderTotals(
   const promotionBonus = promotion?.rewardType === "Bonus points" && hasPromotionItems
     ? Math.max(0, promotion.rewardValue)
     : 0;
-  return { subtotal, discountAmt, tax, total: afterDiscount + tax, costTotal, cashBackEligibleTotal, promotionDiscountAmt, promotionBonus };
+  const baseTotal = afterDiscount + tax;
+  const serviceCharge = posRules.serviceChargePct ? baseTotal * posRules.serviceChargePct / 100 : 0;
+  const total = posRules.roundOrderPrice ? Math.floor(baseTotal + serviceCharge) : baseTotal + serviceCharge;
+  return { subtotal, discountAmt, tax, total, costTotal, cashBackEligibleTotal, promotionDiscountAmt, promotionBonus, serviceCharge };
+}
+
+/** POS pricing rules derived from Settings → General (service charge & rounding). */
+export function posPricingRules(settings: LocationSettings): { serviceChargePct: number; roundOrderPrice: boolean } {
+  const fee = settings.serviceChargeFee ?? "Don't use";
+  return {
+    serviceChargePct: fee === "Don't use" ? 0 : Number(fee.replace("%", "")) || 0,
+    roundOrderPrice: settings.roundOrderPrice === true,
+  };
 }
 
 export function getActivePromotions(promotions: Promotion[], date = new Date()): Promotion[] {
@@ -678,10 +925,17 @@ const INITIAL_SETTINGS: LocationSettings = {
   currencyLabel: "Philippine peso, ₱",
   language: "English",
   vatRate: VAT_RATE,
-  showFloorPlan: true,
-  quickWaitersChange: true,
+  showFloorPlan: false,
+  quickWaitersChange: false,
+  enablePartialServing: true,
+  roundOrderPrice: false,
+  serviceChargeFee: "Don't use",
   cashRegisterShifts: false,
+  useTaxes: false,
+  useManufacturing: false,
   payrollTracking: false,
+  lowStockAlert: "Do not notify",
+  logo: "",
 };
 
 const INITIAL_EMPLOYEES: Employee[] = [
@@ -785,6 +1039,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
     cost: 0,
     price: 10,
     emoji: "🍶",
+    sku: "BORJOMI-05",
     recipe: [{ stockId: "stk-1", qty: 1 }],
   },
   {
@@ -796,6 +1051,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
     cost: 12.5,
     price: 120,
     emoji: "☕",
+    sku: "CAPUCCINO-250",
     recipe: [
       { stockId: "stk-2", qty: 0.018 },
       { stockId: "stk-8", qty: 0.2 },
@@ -813,6 +1069,7 @@ const INITIAL_MENU_ITEMS: MenuItem[] = [
     cost: 14.2,
     price: 95,
     emoji: "🥐",
+    sku: "CROISSANT-CHOC",
     recipe: [
       { stockId: "stk-7", qty: 0.12 },
       { stockId: "stk-5", qty: 0.03 },
@@ -882,6 +1139,57 @@ export const INITIAL_SUPPLY_RECORDS: SupplyRecord[] = [
       { stockId: "stk-13", title: "Water", quantity: 10, unit: "l", cost: 0.5 },
     ],
   },
+];
+
+const INITIAL_INTEGRATIONS: Integration[] = [
+  {
+    id: "int-1",
+    employeeId: "emp-1",
+    employeeName: "Philip Venje Beronio",
+    application: "Personal integration",
+    token: "305637:5434277cbf00c8dfda541b03edda1781",
+    masked: false,
+    createdAt: "11/23/26, 2:44 PM",
+    active: true,
+  },
+  {
+    id: "int-2",
+    employeeId: "emp-1",
+    employeeName: "Philip Venje Beronio",
+    application: "POS Inventory check",
+    token: "305637:7c1f9a3e5b2d48f6a0c4e8b1d3f7a9c5",
+    masked: true,
+    createdAt: "11/23/26, 2:44 PM",
+    active: true,
+    posFeature: "inventory-check",
+  },
+  {
+    id: "int-3",
+    employeeId: "emp-1",
+    employeeName: "Philip Venje Beronio",
+    application: "Supply at the POS",
+    token: "305637:2e8b4d6f1a3c49e7b5d0f2a8c6e4b1d9",
+    masked: true,
+    createdAt: "11/23/26, 2:44 PM",
+    active: true,
+    posFeature: "supply",
+  },
+];
+
+const INITIAL_ORDER_SOURCES: OrderSource[] = [
+  { id: "os-dinein", title: "Dine-in", displayOnPos: true, serviceFeePct: 0 },
+  { id: "os-takeout", title: "Takeout", displayOnPos: false, serviceFeePct: 0 },
+];
+
+const INITIAL_PAYMENT_METHODS: PaymentMethodConfig[] = [
+  { id: "pm-cash", title: "Cash", paymentType: "Cash", icon: "cash", serviceFeePct: 0, displayedOnPos: true, systemLocked: true },
+  { id: "pm-card", title: "Card", paymentType: "Cashless", icon: "card", serviceFeePct: 0, displayedOnPos: true },
+  { id: "pm-gift", title: "Gift card", paymentType: "Other", icon: "gift", serviceFeePct: null, displayedOnPos: true, hasMenu: true },
+  { id: "pm-ewallet", title: "e-Wallet", paymentType: "Other", icon: "wallet", serviceFeePct: 0, displayedOnPos: true, canEdit: false, hasMenu: true },
+  { id: "pm-ubereats", title: "Uber Eats", paymentType: "Cashless", icon: "muted", serviceFeePct: 0, displayedOnPos: false, muted: true, hasMenu: true },
+  { id: "pm-wolt", title: "Wolt", paymentType: "Cashless", icon: "muted", serviceFeePct: 0, displayedOnPos: false, muted: true, hasMenu: true },
+  { id: "pm-justeat", title: "Just Eat", paymentType: "Cashless", icon: "muted", serviceFeePct: 0, displayedOnPos: false, muted: true, hasMenu: true },
+  { id: "pm-glovo", title: "Glovo", paymentType: "Cashless", icon: "muted", serviceFeePct: 0, displayedOnPos: false, muted: true, hasMenu: true },
 ];
 
 const INITIAL_ACCOUNTS: FinanceAccount[] = [
@@ -968,6 +1276,7 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
     },
   ],
   accessLocations: ["tanawa"],
+  integrations: INITIAL_INTEGRATIONS,
   locations: INITIAL_LOCATIONS,
   registers: INITIAL_REGISTERS,
   currentStaffId: "emp-1",
@@ -1036,12 +1345,13 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
   transactions: [],
   receipts: [],
   feedbackList: [],
-  nextReceiptNum: 1001,
+  nextReceiptNum: 2,
   posOrders: [
     {
-      id: "ord-1001",
-      receiptNum: 1001,
+      id: "ord-1",
+      receiptNum: 1,
       tableId: "T1",
+      source: "Dine-in",
       guests: 2,
       staffId: "emp-1",
       customerId: "",
@@ -1054,9 +1364,79 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
       ],
     },
   ],
-  activePosOrderId: "ord-1001",
+  activePosOrderId: "ord-1",
   kdsTickets: [],
   posPayMethod: "Cash",
+  subscriptionStatus: "Trial",
+  pendingInvoice: {
+    id: "inv-305637",
+    number: "305637",
+    item: "Poster Pro per month",
+    qty: 1,
+    amount: 3795,
+    payBy: "December 7, 2026",
+    created: "23 November, 2026",
+  },
+  paidInvoices: [],
+  billingDetails: {
+    taxId: "",
+    companyName: "tanawa",
+    registeredAddress: "",
+    postalCode: "",
+    phone: "00639758868962",
+    email: "2201107938@student.buksu.edu.ph",
+  },
+  attachedCard: null,
+  orderSources: INITIAL_ORDER_SOURCES,
+  paymentMethods: INITIAL_PAYMENT_METHODS,
+  deliverySettings: {
+    enabled: true,
+    orderStatuses: { ready: false, delivered: false },
+    fiscalReceipt: "During payment",
+    areas: [{ id: "da-1", name: "Main area", cost: 0, serviceTimeMin: 60 }],
+  },
+  securitySettings: {
+    adminPassword: "1234",
+    blockPrintBeforeClose: false,
+    printTwoReceipts: false,
+    magneticCardCustomer: false,
+    autoKitchenTickets: "Never",
+    kitchenTicketsAnyRegister: "Never",
+    adminRules: {
+      deleteItem: "In cases...",
+      deleteItemCases: { afterCheckPrinted: true, afterTicketPrinted: false },
+      addDiscount: "After a check is printed",
+      cancelPromotion: "Never",
+      runReport: "Never",
+      splitOrder: "Never",
+      closeReceipt: "Never",
+      addCustomer: "Never",
+      viewOrdersHistory: "Never",
+      addSupplyTablet: "Never",
+      viewDevices: "Never",
+    },
+  },
+  receiptSettings: {
+    autoPrint: false,
+    printReceiptNumber: true,
+    printComments: false,
+    printCustomerContact: false,
+    printPredictions: true,
+    predictions: [
+      "Reach for joy and all else will follow",
+      "An exciting opportunity lies ahead of you",
+      "Love is something that finds you",
+      "Move in the direction of your dreams",
+      "Go take a rest, you deserve it",
+      "A pleasant surprise is waiting for you",
+    ],
+    printWifi: false,
+    wifiName: "",
+    wifiPassword: "",
+    printAddress: false,
+    receiptLanguage: "Account language",
+    printOnReceipt: "Company name",
+  },
 };
 
 /** Total inventory valuation across all stock on hand (₱215.20 for the seed). */

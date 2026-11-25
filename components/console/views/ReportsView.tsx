@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney } from "@/lib/format";
 import { Card, EmptyState, FilterToolbar, PageHeader, ROW, TD, TH } from "../ui";
+import { ReceiptsReportView } from "./ReceiptsReportView";
+import { SalesReportView } from "./SalesReportView";
 
 const ALIASES: Record<string, string> = {
   employees: "waiters",
@@ -13,6 +14,7 @@ const ALIASES: Record<string, string> = {
   "abc-analysis": "abc",
   feedback: "feedbacks",
   "payments-count": "payments",
+  stat: "sales",
 };
 
 const DATE = "23 October — 23 November ▾";
@@ -32,53 +34,7 @@ export function ReportsView({ slug }: { slug: string }) {
   const dateActions = { dateRange: DATE, export: true, print: true };
 
   if (sub === "sales") {
-    const totalRevenue = state.receipts.reduce((sum, receipt) => sum + receipt.total, 0);
-    const totalProfit = state.receipts.reduce((sum, receipt) => sum + receipt.profit, 0);
-    const average = state.receipts.length ? totalRevenue / state.receipts.length : 0;
-
-    return (
-      <div>
-        <PageHeader title="Sales" count={`${state.receipts.length} receipts`} actions={dateActions} />
-        <div className="my-5 grid grid-cols-1 gap-4 sm:grid-cols-4">
-          {[
-            { label: "Revenue", value: money(totalRevenue), accent: "" },
-            { label: "Profit", value: money(totalProfit), accent: "text-[#1DB954]" },
-            { label: "Receipts", value: String(state.receipts.length), accent: "" },
-            { label: "Average receipt", value: money(average), accent: "" },
-          ].map((card) => (
-            <Card key={card.label} className="p-4">
-              <div className="text-xs text-slate-500 dark:text-slate-400">{card.label}</div>
-              <div className={`mt-1 font-mono text-xl font-extrabold ${card.accent}`}>{card.value}</div>
-            </Card>
-          ))}
-        </div>
-
-        <Card className="space-y-3 p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-bold">Revenue &amp; Profit Dynamics (23 October — 23 November)</span>
-            <Link
-              href="/pos"
-              className="rounded-lg bg-[#1DB954] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#18A348]"
-            >
-              + Make POS Sale
-            </Link>
-          </div>
-          <svg viewBox="0 0 600 150" className="h-36 w-full">
-            <line x1="0" y1="130" x2="600" y2="130" stroke="#94A3B8" strokeOpacity="0.25" />
-            <line x1="0" y1="80" x2="600" y2="80" stroke="#94A3B8" strokeOpacity="0.15" />
-            <line x1="0" y1="30" x2="600" y2="30" stroke="#94A3B8" strokeOpacity="0.15" />
-            <path
-              d={`M 20 125 L 140 125 L 260 125 L 380 125 L 480 ${totalRevenue > 0 ? 75 : 125} L 580 ${totalRevenue > 0 ? 30 : 125}`}
-              fill="none"
-              stroke="#1A73E8"
-              strokeWidth="3"
-              strokeLinecap="round"
-            />
-            <circle cx="580" cy={totalRevenue > 0 ? 30 : 125} r="4.5" fill="#1DB954" />
-          </svg>
-        </Card>
-      </div>
-    );
+    return <SalesReportView />;
   }
 
   if (sub === "customers") {
@@ -352,74 +308,7 @@ export function ReportsView({ slug }: { slug: string }) {
   }
 
   if (sub === "receipts") {
-    const receipts = state.receipts.filter(
-      (receipt) =>
-        String(receipt.receiptNum).includes(q) ||
-        receipt.staffName.toLowerCase().includes(q) ||
-        receipt.tableName.toLowerCase().includes(q),
-    );
-    const total = receipts.reduce((sum, receipt) => sum + receipt.total, 0);
-    return (
-      <div>
-        <PageHeader title="Receipts" count={receipts.length} actions={{ ...dateActions, columns: true }} />
-        <FilterToolbar search={search} onSearchChange={setSearch} pills={[{ label: "Payment method ▾" }, { label: "+ Filter" }]} />
-        <div className="overflow-x-auto border-t border-[#E5E8EC] dark:border-[#33373E]">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr>
-                <th className={TH}>Receipt #</th>
-                <th className={TH}>Closed</th>
-                <th className={TH}>Waiter</th>
-                <th className={TH}>Table</th>
-                <th className={TH}>Payment</th>
-                <th className={`${TH} text-right`}>Total</th>
-                <th className={`${TH} text-right`}>Profit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {receipts.map((receipt) => (
-                <tr
-                  key={receipt.receiptNum}
-                  onClick={() => actions.setReceiptPreview(receipt)}
-                  className={`${ROW} cursor-pointer`}
-                >
-                  <td className={`${TD} font-mono font-bold text-[#1A73E8] dark:text-[#7EB3F5]`}>#{receipt.receiptNum}</td>
-                  <td className={`${TD} text-slate-500 dark:text-slate-400`}>{receipt.closedAt}</td>
-                  <td className={TD}>{receipt.staffName}</td>
-                  <td className={TD}>{receipt.tableName}</td>
-                  <td className={TD}>{receipt.paymentMethod}</td>
-                  <td className={`${TD} text-right font-mono font-bold`}>{money(receipt.total)}</td>
-                  <td className={`${TD} text-right font-mono text-[#1DB954]`}>{money(receipt.profit)}</td>
-                </tr>
-              ))}
-            </tbody>
-            {receipts.length > 0 && (
-              <tfoot className="sticky bottom-0 bg-white shadow-[0_-1px_0_#E5E8EC] dark:bg-[#2C3036] dark:shadow-[0_-1px_0_#33373E]">
-                <tr className="font-bold">
-                  <td className={`${TD} font-bold`} colSpan={5}>
-                    {receipts.length} receipts
-                  </td>
-                  <td className={`${TD} text-right font-mono font-bold`}>{money(total)}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-        {receipts.length === 0 && (
-          <EmptyState
-            emoji="🧾"
-            title="No closed receipts yet"
-            description="Click Open POS to ring up and close your first check."
-            action={
-              <Link href="/pos" className="inline-block rounded-lg bg-[#1DB954] px-4 py-2 text-xs font-bold text-white">
-                Open POS
-              </Link>
-            }
-          />
-        )}
-      </div>
-    );
+    return <ReceiptsReportView />;
   }
 
   if (sub === "feedbacks") {

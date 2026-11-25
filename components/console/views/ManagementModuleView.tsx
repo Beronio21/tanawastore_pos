@@ -1676,6 +1676,7 @@ function StockView() {
   const [category, setCategory] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menuOpen, setMenuOpen] = useState(false);
+  const [shown, setShown] = useState(100);
   const query = search.trim().toLowerCase();
   const locations = state.storageLocations?.length ? state.storageLocations : ["Storage 1"];
   const stockAtStorage = (item: (typeof state.stockItems)[number], title: string) =>
@@ -1686,6 +1687,7 @@ function StockView() {
     (!category || item.category === category) &&
     (!storage || stockAtStorage(item, storage) > 0),
   );
+  const visibleItems = items.slice(0, shown);
   const valuation = state.stockItems.reduce((sum, item) => sum + item.stock * item.cost, 0);
   const prefix = (value: number) => formatMoneyPrefix(value, state.settings.currencySymbol);
 
@@ -1716,21 +1718,21 @@ function StockView() {
         <div className="relative w-44">
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => { setSearch(event.target.value); setShown(100); }}
             placeholder="Search..."
             className="w-full rounded-md border border-[#D1D5DB] bg-white py-1.5 px-3 text-xs outline-none focus:border-[#1A73E8] dark:border-[#3E434C] dark:bg-[#1D2024]"
           />
         </div>
-        <select value={storage} onChange={(event) => setStorage(event.target.value)} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
+        <select value={storage} onChange={(event) => { setStorage(event.target.value); setShown(100); }} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
           <option value="">Storage ▾</option>
           {locations.map((location) => <option key={location} value={location}>{location}</option>)}
         </select>
-        <select value={type} onChange={(event) => setType(event.target.value)} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
+        <select value={type} onChange={(event) => { setType(event.target.value); setShown(100); }} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
           <option value="All">Type ▾ (All)</option>
           <option value="Product">Product</option>
           <option value="Ingredient">Ingredient</option>
         </select>
-        <select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
+        <select value={category} onChange={(event) => { setCategory(event.target.value); setShown(100); }} className="rounded-md border border-transparent bg-transparent px-2 py-1.5 font-medium text-[#1A73E8] outline-none dark:text-[#7EB3F5]">
           <option value="">Category ▾</option>
           {state.menuCategories.map((entry) => <option key={entry.id} value={entry.name}>{entry.name}</option>)}
         </select>
@@ -1751,7 +1753,7 @@ function StockView() {
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <Fragment key={item.id}>
                 <tr key={item.id} className={ROW}>
                   <td className={TD}>
@@ -1788,10 +1790,19 @@ function StockView() {
             </tr>
           </tfoot>
         </table>
+        {items.length > shown && (
+          <button
+            type="button"
+            onClick={() => setShown((count) => count + 100)}
+            className="block w-full cursor-pointer border-t border-[#E5E8EC] px-3 py-2.5 text-center text-xs font-bold text-[#1A73E8] hover:bg-slate-50 dark:border-[#33373E] dark:text-[#7EB3F5] dark:hover:bg-white/[0.03]"
+          >
+            Show more ({items.length - shown} remaining)
+          </button>
+        )}
       </Card>
       <div className="flex items-center justify-between py-3 text-xs text-slate-500 dark:text-slate-400">
         <div className="flex items-center gap-1"><button type="button" className="px-1">‹</button><span>Page 1 of 1</span><button type="button" className="px-1">›</button><button type="button" className="px-1">›|</button></div>
-        <span>1 to {items.length} of {state.stockItems.length}</span>
+        <span>{Math.min(shown, items.length)} to {items.length} of {state.stockItems.length}</span>
       </div>
     </div>
   );

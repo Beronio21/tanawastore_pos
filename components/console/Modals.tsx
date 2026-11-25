@@ -678,7 +678,7 @@ export function AddSupplyModal() {
                   <option value="">Base unit ({line.unit})</option>
                   {state.orderingUnits.filter((entry) => entry.unit === line.unit).map((entry) => <option key={entry.id} value={entry.id}>{entry.title} ({formatQty(entry.quantity, entry.unit)})</option>)}
                 </select>
-                <input type="number" step={line.orderingUnitId ? "1" : "0.001"} min="0.001" required aria-label={line.orderingUnitId ? "Pack quantity" : "Quantity"} value={line.orderingUnitId ? line.packCount : line.quantity} onChange={(event) => updateLine(index, line.orderingUnitId ? { packCount: Number(event.target.value) || 0 } : { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
+                <input type="number" step={line.orderingUnitId ? "1" : "0.001"} min={line.orderingUnitId ? "1" : "0.001"} required aria-label={line.orderingUnitId ? "Pack quantity" : "Quantity"} value={line.orderingUnitId ? line.packCount : line.quantity} onChange={(event) => updateLine(index, line.orderingUnitId ? { packCount: Number(event.target.value) || 0 } : { quantity: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
                 <input type="number" step="0.01" min="0" required aria-label="Unit cost" value={line.cost} onChange={(event) => updateLine(index, { cost: Number(event.target.value) || 0 })} className={`${INPUT} font-mono`} />
                 <button type="button" aria-label="Remove line" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index))} className="text-slate-400 hover:text-rose-500 disabled:opacity-30">×</button>
                 {line.orderingUnitId && <p className="col-span-full -mt-1 text-[10px] text-slate-500 dark:text-slate-400">{line.packCount} pack(s) = {formatQty(baseQuantity(line), line.unit)} · cost is entered per base unit</p>}
@@ -1194,19 +1194,47 @@ export function ThermalReceiptModal() {
   const receipt = state.receiptPreview;
   const symbol = state.settings.currencySymbol;
   const money = useMemo(() => (value: number) => formatMoney(value, symbol), [symbol]);
+  const [prediction] = useState(() => {
+    const predictions = state.receiptSettings?.predictions?.filter((entry) => entry.trim()) ?? [];
+    return predictions.length ? predictions[Math.floor(Math.random() * predictions.length)] : "";
+  });
 
   if (!receipt) return null;
+
+  const receiptSettings = state.receiptSettings;
+  const headerName = receiptSettings?.printOnReceipt === "Business name"
+    ? (state.locations[0]?.name ?? state.settings.companyName)
+    : state.settings.companyName;
+  const activePredictions = receiptSettings?.printPredictions ? prediction : "";
 
   return (
     <Overlay onClose={() => actions.setReceiptPreview(null)}>
       <div className="w-full max-w-sm space-y-4">
         <div id="printable-receipt-area" className="thermal-receipt space-y-3 p-6 font-mono text-xs">
           <div className="space-y-1 border-b border-dashed border-slate-300 pb-3 text-center">
-            <div className="text-sm font-extrabold uppercase">{state.settings.companyName}</div>
-            <div className="text-[11px] text-slate-500">{state.settings.address}</div>
-            <div className="text-[11px] text-slate-500">Receipt #{receipt.receiptNum} • {receipt.closedAt}</div>
+            {state.settings.logo && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={state.settings.logo} alt="" className="mx-auto mb-1 h-10 w-auto max-w-[160px] object-contain" />
+            )}
+            <div className="text-sm font-extrabold uppercase">{headerName}</div>
+            {receiptSettings?.printAddress !== false && (
+              <div className="text-[11px] text-slate-500">{state.settings.address}</div>
+            )}
+            <div className="text-[11px] text-slate-500">
+              {receiptSettings?.printReceiptNumber !== false && `Receipt #${receipt.receiptNum} • `}{receipt.closedAt}
+            </div>
             <div className="text-[11px] text-slate-500">Waiter: {receipt.staffName}</div>
             <div className="text-[11px] text-slate-500">{receipt.tableName} • {receipt.paymentMethod}</div>
+            {receiptSettings?.printCustomerContact && receipt.customerName && (
+              <div className="text-[11px] text-slate-500">
+                {receipt.customerName}
+                {receipt.customerPhone ? ` • ${receipt.customerPhone}` : ""}
+                {receipt.customerAddress ? ` • ${receipt.customerAddress}` : ""}
+              </div>
+            )}
+            {receiptSettings?.printComments && receipt.comment && (
+              <div className="text-[11px] italic text-slate-500">Comment: {receipt.comment}</div>
+            )}
           </div>
           <div className="space-y-1.5 border-b border-dashed border-slate-300 pb-3">
             {receipt.items.map((item, index) => (
@@ -1221,6 +1249,12 @@ export function ThermalReceiptModal() {
             {receipt.discountAmt > 0 && (
               <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{money(receipt.discountAmt)}</span></div>
             )}
+            {(receipt.serviceCharge ?? 0) > 0 && (
+              <div className="flex justify-between text-slate-500"><span>Service charge</span><span>{money(receipt.serviceCharge ?? 0)}</span></div>
+            )}
+            {(receipt.deliveryFee ?? 0) > 0 && (
+              <div className="flex justify-between text-slate-500"><span>Delivery{receipt.deliveryArea ? ` · ${receipt.deliveryArea}` : ""}</span><span>{money(receipt.deliveryFee ?? 0)}</span></div>
+            )}
             <div className="flex justify-between text-slate-500"><span>VAT (12%)</span><span>{money(receipt.tax)}</span></div>
             <div className="flex justify-between pt-1 text-sm font-extrabold"><span>TOTAL</span><span>{money(receipt.total)}</span></div>
             <div className="flex justify-between text-slate-500"><span>Payment</span><span>{receipt.paymentMethod}</span></div>
@@ -1231,6 +1265,14 @@ export function ThermalReceiptModal() {
               </>
             )}
           </div>
+          {receiptSettings?.printWifi && receiptSettings.wifiName && (
+            <div className="border-t border-dashed border-slate-300 pt-2 text-center text-[11px] text-slate-500">
+              Wi-Fi: {receiptSettings.wifiName}{receiptSettings.wifiPassword ? ` / ${receiptSettings.wifiPassword}` : ""}
+            </div>
+          )}
+          {activePredictions && (
+            <div className="border-t border-dashed border-slate-300 pt-2 text-center text-[11px] italic text-slate-500">{activePredictions}</div>
+          )}
           <div className="pt-2 text-center text-[10px] text-slate-400">Powered by Poster POS</div>
         </div>
         <div className="flex gap-2">

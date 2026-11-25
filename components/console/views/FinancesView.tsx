@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePosStore } from "@/lib/pos-store";
+import { calculatePayroll } from "@/lib/business-math";
 import { formatMoney } from "@/lib/format";
 import { accountDisplayName, type FinanceCategoryFlag } from "@/lib/console-data";
 import { Card, EmptyState, FilterToolbar, PageHeader, ROW, TD, TH, Toggle } from "../ui";
@@ -348,32 +349,25 @@ export function FinancesView({ slug }: { slug: string }) {
                 const receiptItems = state.receipts
                   .filter((receipt) => receipt.staffId === employee.id)
                   .flatMap((receipt) => receipt.items);
-                const fallbackHourlyRate = employee.hourlyRate ?? 120;
-                const basePay = payroll?.perMonth
-                  ? payroll.perMonth
-                  : payroll?.perShift
-                    ? payroll.perShift
-                    : (payroll?.perHour || fallbackHourlyRate) * 8;
-                const defaultCommission = payroll?.commissionRates.length ? 0 : 5;
-                const allCategoriesRate = payroll?.commissionRates.find((rate) => rate.categoryId === "")?.percentage ?? defaultCommission;
-                const commission = receiptItems.reduce((sum, item) => {
-                  const menuItem = state.menuItems.find((entry) => entry.id === item.menuId);
-                  const categoryId = state.menuCategories.find((category) => category.name === menuItem?.category)?.id;
-                  const categoryRate = payroll?.commissionRates.find((rate) => rate.categoryId && rate.categoryId === categoryId)?.percentage;
-                  return sum + item.unitPrice * item.qty * (categoryRate ?? allCategoriesRate) / 100;
-                }, 0);
-                const totalPay = basePay + commission;
-                const fixedRateDescription = payroll?.perMonth
-                  ? `${money(payroll.perMonth)}/month`
-                  : payroll?.perShift
-                    ? `${money(payroll.perShift)}/shift`
-                    : `${money(payroll?.perHour || fallbackHourlyRate)}/hr × 8h`;
+                const payrollResult = calculatePayroll({
+                  payroll,
+                  fallbackHourlyRate: employee.hourlyRate,
+                  receiptItems,
+                  menuItems: state.menuItems,
+                  menuCategories: state.menuCategories,
+                });
+                const totalPay = payrollResult.total;
+                const fixedRateDescription = payrollResult.rateKind === "Per month"
+                  ? `${money(payrollResult.rateValue)}/month`
+                  : payrollResult.rateKind === "Per shift"
+                    ? `${money(payrollResult.rateValue)}/shift`
+                    : `${money(payrollResult.rateValue)}/hr × 8h`;
                 return (
                   <tr key={employee.id} className={ROW}>
                     <td className={TD}>
                       <div className="font-bold">{employee.position} — {employee.name}</div>
                       <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                        {fixedRateDescription} + {payroll?.commissionRates.length ? "configured personal sales commission" : "5% sales bonus"}
+                        {fixedRateDescription} + {payrollResult.usesDefaultCommission ? "5% sales bonus" : "configured personal sales commission"}
                       </div>
                     </td>
                     <td className={`${TD} text-right font-mono`}>1</td>
