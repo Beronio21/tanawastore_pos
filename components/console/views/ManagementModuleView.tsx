@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney, formatMoneyPrefix, formatQty } from "@/lib/format";
+import { planForState, planLimit, withinPlanLimit } from "@/lib/billing-plans";
+import { PlanLimitDialog } from "../PlanLimitDialog";
 import { accountDisplayName, type AccessLevel, type ConsoleAccessArea, type Customer, type CustomerGroup, type Employee, type LoyaltySettings, type LoyaltyTransitionCondition, type PositionRole, type Promotion, type PromotionRewardType, type PromotionScope, type Register, type UserSession } from "@/lib/console-data";
 import { Card, EmptyState, FilterToolbar, PageHeader, ROW, TD, TH, Toggle } from "../ui";
 
@@ -1063,6 +1065,8 @@ function RegistersView({ basePath }: { basePath: string }) {
   const [search, setSearch] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
   const [openMenuId, setOpenMenuId] = useState("");
+  const [limitOpen, setLimitOpen] = useState(false);
+  const plan = planForState(state);
   const query = search.trim().toLowerCase();
   const registers = state.registers
     .filter((register) =>
@@ -1074,11 +1078,19 @@ function RegistersView({ basePath }: { basePath: string }) {
 
   return (
     <div>
+      <PlanLimitDialog
+        open={limitOpen}
+        resource="registers"
+        plan={plan}
+        used={state.registers.length}
+        limit={planLimit(plan, "registers")}
+        onClose={() => setLimitOpen(false)}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EC] pb-3.5 dark:border-[#33373E]">
         <h1 className="text-xl font-bold tracking-tight">Registers</h1>
         <div className="flex items-center gap-2">
           <button type="button" aria-label="More register actions" onClick={() => actions.showToast("Register list actions", "blue")} className="cursor-pointer rounded-md p-1.5 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-[#33373E]"><MoreVertical className="h-4 w-4" /></button>
-          <button type="button" onClick={() => openRegister("new")} className="cursor-pointer rounded-md bg-[#0077FF] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#0067DF]">Add</button>
+          <button type="button" onClick={() => { if (withinPlanLimit(plan, "registers", state.registers.length)) openRegister("new"); else setLimitOpen(true); }} className="cursor-pointer rounded-md bg-[#0077FF] px-4 py-1.5 text-xs font-bold text-white hover:bg-[#0067DF]">Add</button>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2.5 py-3.5 text-xs">

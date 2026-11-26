@@ -108,3 +108,9 @@ Agents modifying UI components **must** preserve the visual language familiar to
 - Before creating new database fields or routes, check `docs/project-doc.md` to ensure naming aligns with Poster POS terminology (`workshops` = Stations, `prepack` = Preparations, `clients` = Customers).
 - Always provide both **Light** and **Dark** theme utility classes (`dark:...` or theme tokens) for any new console view.
 - Run `npx tsc --noEmit` and `npm run lint` after every structural edit to guarantee zero type or lint regressions.
+
+## 7. Phase 3 Notes (Multi-Tenant / Clerk / Offline Sync)
+
+- Tenants resolve via `lib/tenant.ts` (`orgId ?? personal_<userId>`); all `localStorage` keys are namespaced per tenant (`lib/tenant-keys.ts`). Phase 2 e2e specs must look up `tanawa_pos_state_*` keys dynamically instead of the legacy `tanawastore_pos_v1`.
+- `proxy.ts` wraps `clerkMiddleware` and skips Clerk's second internal-rewrite pass (Next.js 16.4.6 middleware-loop workaround — do not remove).
+- E2E/perf suites need `E2E_TEST_MODE=1` (see `docs/runtest.md`); it disables `auth.protect()` and must never be set in production.

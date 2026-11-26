@@ -15,12 +15,37 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import { UserButton } from "@clerk/nextjs";
+import { OrganizationSwitcher, UserButton } from "@clerk/nextjs";
 import { usePosStore } from "@/lib/pos-store";
+import { filterNavSections } from "@/lib/rbac";
 import { NAV_SECTIONS } from "./nav";
 
 function remainingSteps(onboarding: { createdItem: boolean; madeSale: boolean; viewedReports: boolean }) {
   return 3 - Number(onboarding.createdItem) - Number(onboarding.madeSale) - Number(onboarding.viewedReports);
+}
+
+/** Sidebar sections that render as a single-open dropdown. */
+const COLLAPSIBLE_GROUPS = new Set([
+  "Reports",
+  "Finances",
+  "Menu",
+  "Inventory",
+  "Marketing",
+  "Access",
+  "Applications",
+  "Settings",
+]);
+
+/** Resolve which collapsible group the current route belongs to (null when standalone). */
+function groupForPath(pathname: string): string | null {
+  for (const section of NAV_SECTIONS) {
+    if (!COLLAPSIBLE_GROUPS.has(section.label)) continue;
+    const inGroup =
+      section.children.some((entry) => pathname === entry.href || pathname.startsWith(`${entry.href}/`)) ||
+      (section.id === "access" && pathname.startsWith("/manage/access"));
+    if (inGroup) return section.label;
+  }
+  return null;
 }
 
 function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
@@ -30,6 +55,18 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
   const remaining = remainingSteps(state.onboarding);
   const isTabletsRoute = pathname.startsWith("/manage/access/tablets") || pathname.startsWith("/manage/access/pos");
   const dark = state.theme === "dark";
+  const activeEmployee = state.employees.find((entry) => entry.id === state.currentStaffId) ?? state.employees[0];
+  const activePosition = state.positions.find((entry) => entry.title === activeEmployee?.position) ?? null;
+  const visibleSections = filterNavSections(NAV_SECTIONS, activePosition);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [syncedPathname, setSyncedPathname] = useState(pathname);
+
+  // Route changes are rare; adjust the accordion during render so only the
+  // active section stays open (and standalone routes collapse everything).
+  if (pathname !== syncedPathname) {
+    setSyncedPathname(pathname);
+    setOpenGroup(groupForPath(pathname));
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -72,12 +109,29 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
         )}
       </div>
 
+      {!collapsed && (
+        <div className="shrink-0 border-b border-[#E5E8EC] px-2 py-2 dark:border-[#33373E]">
+          <OrganizationSwitcher
+            hidePersonal={false}
+            afterSelectOrganizationUrl="/manage/welcome"
+            afterSelectPersonalUrl="/manage/welcome"
+            appearance={{
+              elements: {
+                rootBox: "w-full",
+                organizationSwitcherTrigger:
+                  "w-full justify-between rounded-md border border-[#E5E8EC] bg-white px-2 py-1.5 text-[12px] dark:border-[#33373E] dark:bg-[#24272C]",
+              },
+            }}
+          />
+        </div>
+      )}
+
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-1.5 py-2">
-        {NAV_SECTIONS.map((section) => {
+        {visibleSections.map((section) => {
           const isSectionActive = section.href
             ? pathname === section.href
             : section.children.some((entry) => pathname === entry.href) || (section.id === "access" && isTabletsRoute);
-          const isExpanded = !!state.expandedAccordions[section.id] && !collapsed;
+          const isExpanded = openGroup === section.label && !collapsed;
           const Icon = section.icon;
 
           const parentClass = isSectionActive && !isExpanded
@@ -93,14 +147,16 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
                 : "text-[#4B5563] hover:bg-slate-200/60 hover:text-slate-900";
 
           const openSection = () => {
-            if (section.href) {
-              router.push(section.href);
+            if (section.children.length === 0) {
+              router.push(section.href ?? "/manage/welcome");
+              setOpenGroup(null);
               onNavigate?.();
               return;
             }
-            const opening = !state.expandedAccordions[section.id];
-            actions.toggleAccordion(section.id);
-            if (opening) {
+            if (openGroup === section.label) {
+              setOpenGroup(null);
+            } else {
+              setOpenGroup(section.label);
               router.push(section.children[0]?.href ?? "/manage/welcome");
             }
             onNavigate?.();

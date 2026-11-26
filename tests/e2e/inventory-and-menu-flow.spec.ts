@@ -8,7 +8,8 @@ async function ready(page: Page) {
 async function waitForStockQty(page: Page, stockId: string, expected: number) {
   await page.waitForFunction(
     ({ id, qty }) => {
-      const raw = window.localStorage.getItem("tanawastore_pos_v1");
+      const key = Object.keys(window.localStorage).find((k) => k.startsWith("tanawa_pos_state_"));
+      const raw = key ? window.localStorage.getItem(key) : null;
       if (!raw) return false;
       const state = JSON.parse(raw) as { stockItems?: { id: string; stock: number }[] };
       const item = state.stockItems?.find((entry) => entry.id === id);
@@ -29,7 +30,8 @@ test("ordering unit -> supply -> inventory check updates stock and movements", a
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("cell", { name: "Box of 10", exact: true })).toBeVisible();
   await page.waitForFunction(() => {
-    const raw = window.localStorage.getItem("tanawastore_pos_v1");
+    const key = Object.keys(window.localStorage).find((k) => k.startsWith("tanawa_pos_state_"));
+    const raw = key ? window.localStorage.getItem(key) : null;
     return raw != null && (JSON.parse(raw) as { orderingUnits?: unknown[] }).orderingUnits?.length === 1;
   });
 

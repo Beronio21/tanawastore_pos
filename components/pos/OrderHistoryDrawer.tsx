@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { History, Printer, RotateCcw, X } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney } from "@/lib/format";
+import { hasPermission } from "@/lib/rbac";
 import type { PaymentMethod, Receipt } from "@/lib/console-data";
 
 type Filter = "all" | "cash" | "card" | "refunds";
@@ -30,6 +31,26 @@ export function OrderHistoryDrawer({ onClose }: { onClose: () => void }) {
   const [shown, setShown] = useState(PAGE_SIZE);
   const [selectedNum, setSelectedNum] = useState<number | null>(null);
   const [confirmRefund, setConfirmRefund] = useState<number | null>(null);
+  const [managerPrompt, setManagerPrompt] = useState<number | null>(null);
+  const [managerPin, setManagerPin] = useState("");
+  const [managerError, setManagerError] = useState(false);
+
+  const activeEmployee = state.employees.find((entry) => entry.id === state.currentStaffId) ?? state.employees[0];
+  const activePosition = state.positions.find((entry) => entry.title === activeEmployee?.position) ?? null;
+  const canRefund = hasPermission(activePosition, "canRefundOrders");
+  const approveRefund = (receiptNum: number) => {
+    const manager = state.employees.find((employee) => employee.pin === managerPin);
+    const managerPosition = state.positions.find((entry) => entry.title === manager?.position) ?? null;
+    if (!manager || !hasPermission(managerPosition, "canRefundOrders")) {
+      setManagerError(true);
+      setManagerPin("");
+      return;
+    }
+    setManagerPrompt(null);
+    setManagerPin("");
+    setManagerError(false);
+    actions.refundReceipt(receiptNum);
+  };
 
   const symbol = state.settings.currencySymbol;
   const money = (value: number) => formatMoney(value, symbol);
@@ -148,7 +169,7 @@ export function OrderHistoryDrawer({ onClose }: { onClose: () => void }) {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setConfirmRefund(selected.receiptNum)}
+                        onClick={() => { if (canRefund) setConfirmRefund(selected.receiptNum); else { setManagerPin(""); setManagerError(false); setManagerPrompt(selected.receiptNum); } }}
                         className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-rose-200 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 dark:border-rose-500/30 dark:text-rose-300 dark:hover:bg-rose-500/10"
                       >
                         <RotateCcw className="h-3.5 w-3.5" />
@@ -166,6 +187,30 @@ export function OrderHistoryDrawer({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </aside>
+
+      {managerPrompt !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 dark:bg-[#2C3036]">
+            <h2 className="text-lg font-bold">Manager approval required</h2>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Your position cannot issue refunds. Enter a Manager or Owner PIN to approve receipt #{managerPrompt}.
+            </p>
+            <input
+              autoFocus
+              value={managerPin}
+              onChange={(event) => { setManagerPin(event.target.value.replace(/\D/g, "").slice(0, 4)); setManagerError(false); }}
+              onKeyDown={(event) => { if (event.key === "Enter" && managerPin.length === 4) approveRefund(managerPrompt); }}
+              placeholder="Manager PIN"
+              className="mt-4 w-full rounded-lg border bg-transparent px-3 py-2 font-mono tracking-[0.4em] dark:border-[#3E434C]"
+            />
+            {managerError && <p className="mt-1 text-[11px] font-semibold text-rose-500">PIN does not have refund permission.</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => { setManagerPrompt(null); setManagerPin(""); }} className="cursor-pointer rounded-lg border px-4 py-2 text-xs font-bold dark:border-[#3E434C]">Cancel</button>
+              <button type="button" disabled={managerPin.length !== 4} onClick={() => approveRefund(managerPrompt)} className="cursor-pointer rounded-lg bg-[#1A73E8] px-4 py-2 text-xs font-bold text-white disabled:opacity-40">Approve refund</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

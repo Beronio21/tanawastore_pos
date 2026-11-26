@@ -2,7 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { PosStoreProvider } from "@/lib/pos-store";
+import { TenantProvider } from "./tenant-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,7 +36,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
           />
           <Suspense fallback={<div className="min-h-screen bg-white dark:bg-[#24272C]" />}>
-          <PosStoreProvider>{children}</PosStoreProvider>
+          <TenantProvider>{children}</TenantProvider>
           </Suspense>
         </ClerkProvider>
       </body>

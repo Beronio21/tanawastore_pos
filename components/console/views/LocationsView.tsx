@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, Clock, MoreVertical, Plus } from "lucide-react";
 import { accountDisplayName, type BusinessLocation, type FinanceAccount } from "@/lib/console-data";
 import { usePosStore } from "@/lib/pos-store";
+import { planForState, planLimit, withinPlanLimit } from "@/lib/billing-plans";
+import { PlanLimitDialog } from "../PlanLimitDialog";
 
 const FIELD =
   "w-full rounded-md border border-[#D1D5DB] bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#1A73E8] focus:outline-none dark:border-[#3E434C] dark:bg-[#1D2024] dark:text-white dark:placeholder:text-slate-500";
@@ -36,6 +38,8 @@ export function LocationsView({ id, basePath }: Props) {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [storageMenuOpen, setStorageMenuOpen] = useState(false);
+  const [limitOpen, setLimitOpen] = useState(false);
+  const plan = planForState(state);
   const [editedFields, setEditedFields] = useState<LocationFields | null>(null);
   const creating = isNewLocation(id);
   const location = creating ? undefined : state.locations.find((entry) => entry.id === id);
@@ -267,6 +271,14 @@ export function LocationsView({ id, basePath }: Props) {
 
   return (
     <div>
+      <PlanLimitDialog
+        open={limitOpen}
+        resource="locations"
+        plan={plan}
+        used={state.locations.length}
+        limit={planLimit(plan, "locations")}
+        onClose={() => setLimitOpen(false)}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E8EC] pb-3.5 dark:border-[#33373E]">
         <h1 className="text-xl font-bold tracking-tight">Locations</h1>
         <div className="flex items-center gap-2">
@@ -281,7 +293,10 @@ export function LocationsView({ id, basePath }: Props) {
           </button>
           <button
             type="button"
-            onClick={() => router.push(`${basePath}/new`)}
+            onClick={() => {
+              if (withinPlanLimit(plan, "locations", state.locations.length)) router.push(`${basePath}/new`);
+              else setLimitOpen(true);
+            }}
             className="inline-flex items-center gap-1.5 rounded-md bg-[#0077FF] px-4 py-2 text-xs font-bold text-white hover:bg-[#0068E0]"
           >
             <Plus className="h-3.5 w-3.5" /> Add

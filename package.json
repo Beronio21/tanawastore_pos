@@ -11,10 +11,15 @@
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test tests/e2e",
     "test:perf": "npm run build && playwright test --config playwright.perf.config.ts",
-    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e && npm run test:perf"
+    "test:all": "npm run test:unit && npm run test:integration && npm run test:e2e && npm run test:perf",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@clerk/nextjs": "^7.10.9",
+    "@clerk/nextjs": "7.10.10",
+    "@neondatabase/serverless": "^1.2.1",
+    "drizzle-orm": "^0.45.4",
     "lucide-react": "^1.78.0",
     "next": "16.4.6",
     "react": "19.3.0",
@@ -31,6 +36,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^6.3.0",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "jsdom": "^31.0.1",

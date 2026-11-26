@@ -716,6 +716,19 @@ export type ConsoleModal =
   | "pin-lock"
   | null;
 
+export type TenantProfile = {
+  name: string;
+  businessType: string;
+  currency: string;
+  timezone: string;
+  registerLogin: string;
+  registerTitle: string;
+  locationName: string;
+  address: string;
+  openingFloat: number;
+  completedAt: string;
+};
+
 export type ConsoleState = {
   theme: "light" | "dark";
   sidebarCollapsed: boolean;
@@ -726,7 +739,13 @@ export type ConsoleState = {
   posLocked: boolean;
   isOnline: boolean;
   offlineQueued: number;
+  syncing: boolean;
+  lastSyncedAt: string;
+  syncedMutationIds: string[];
 
+  plan: "starter" | "pro" | "enterprise";
+  onboardingCompleted: boolean;
+  tenantProfile: TenantProfile | null;
   onboarding: OnboardingProgress;
   settings: LocationSettings;
   accounts: FinanceAccount[];
@@ -1252,7 +1271,13 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
   posLocked: false,
   isOnline: true,
   offlineQueued: 0,
+  syncing: false,
+  lastSyncedAt: "",
+  syncedMutationIds: [],
 
+  plan: "pro",
+  onboardingCompleted: true,
+  tenantProfile: null,
   onboarding: { createdItem: false, madeSale: false, viewedReports: false },
   settings: INITIAL_SETTINGS,
   accounts: INITIAL_ACCOUNTS,

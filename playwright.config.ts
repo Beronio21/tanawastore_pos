@@ -25,5 +25,6 @@ export default defineConfig({
     url: `http://127.0.0.1:${PORT}/manage/welcome`,
     reuseExistingServer: true,
     timeout: 180_000,
+    env: { E2E_TEST_MODE: "1" },
   },
 });

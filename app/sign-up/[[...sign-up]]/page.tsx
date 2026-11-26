@@ -8,7 +8,7 @@ export default function SignUpPage() {
       <Suspense
         fallback={<div className="h-[420px] w-full animate-pulse rounded-2xl bg-slate-100 dark:bg-[#2C3036]" />}
       >
-        <SignUp signInUrl="/sign-in" fallbackRedirectUrl="/manage/dash/stat" />
+        <SignUp signInUrl="/sign-in" fallbackRedirectUrl="/onboarding" />
       </Suspense>
     </AuthShell>
   );

@@ -54,7 +54,11 @@ import {
   type DeliverySettings,
   type SecuritySettings,
   type ReceiptSettings,
+  type TenantProfile,
 } from "./console-data";
+import type { OnboardingPreset } from "./onboarding-presets";
+import { tenantStorageKeys } from "./tenant-keys";
+import { createMutationId, enqueueMutation, flushQueue, readQueue } from "./offline-sync";
 import {
   customerGroupDiscountRate,
   inventoryDiscrepancy,
@@ -64,8 +68,9 @@ import {
 } from "./business-math";
 import { formatTime, formatTimestamp } from "./format";
 
-const STORAGE_KEY = "tanawastore_pos_v1";
+const LEGACY_STORAGE_KEY = "tanawastore_pos_v1";
 const THEME_KEY = "tanawa-theme";
+const DEFAULT_TENANT_ID = "personal_demo";
 
 let uidCounter = 0;
 function uid(prefix: string): string {
@@ -289,6 +294,8 @@ type Actions = {
   saveRegister: (id: string | null, input: RegisterInput) => void;
   deleteRegister: (id: string) => void;
   saveBusinessLocation: (id: string | null, input: BusinessLocationInput) => string;
+  completeOnboarding: (profile: TenantProfile, preset: OnboardingPreset) => void;
+  flushOfflineQueue: () => Promise<void>;
   updateSettings: (patch: Partial<LocationSettings>) => void;
   submitGuestFeedback: (stars: number, comment: string) => void;
   runPostieAiImport: () => void;
@@ -307,11 +314,18 @@ function persistable(state: ConsoleState): ConsoleState {
   };
 }
 
-export function PosStoreProvider({ children }: { children: ReactNode }) {
+export function PosStoreProvider({
+  children,
+  tenantId = DEFAULT_TENANT_ID,
+}: {
+  children: ReactNode;
+  tenantId?: string;
+}) {
   const [state, setState] = useState<ConsoleState>(INITIAL_CONSOLE_STATE);
   const [hydrated, setHydrated] = useState(false);
+  const [hydratedTenant, setHydratedTenant] = useState<string | null>(null);
   const stateRef = useRef(state);
-  const hydratedRef = useRef(false);
+  const storageKey = tenantStorageKeys(tenantId).state;
 
   useEffect(() => {
     stateRef.current = state;
@@ -326,11 +340,19 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // Restore the saved demo state after mount so server HTML stays deterministic.
+  // Restore the saved tenant state after mount so server HTML stays deterministic.
+  // Re-runs whenever the active Clerk Organization (tenant) changes.
   useEffect(() => {
     let merged: ConsoleState | null = null;
+    let cancelled = false;
+    // Note: hydratedTenant still holds the previous tenant here, so the persist
+    // effect's `hydratedTenant !== tenantId` guard blocks stale writes until the
+    // restore below completes.
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw =
+        window.localStorage.getItem(storageKey) ??
+        // One-time migration from the pre-Phase-3 single-workspace key.
+        window.localStorage.getItem(LEGACY_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<ConsoleState>;
         const savedPositions = Array.isArray(parsed.positions) && parsed.positions.length > 0 && typeof parsed.positions[0] === "string"
@@ -358,21 +380,23 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
       // Corrupted demo data — fall back to the fresh seed.
     }
     queueMicrotask(() => {
-      const restored = merged;
-      if (restored) {
-        setState(restored);
-        stateRef.current = restored;
-      }
+      if (cancelled) return;
+      const restored = merged ?? structuredClone(INITIAL_CONSOLE_STATE);
+      setState(restored);
+      stateRef.current = restored;
       // Only persist after the restore so the seed cannot clobber saved state.
-      hydratedRef.current = true;
       setHydrated(true);
+      setHydratedTenant(tenantId);
       try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable(restored ?? stateRef.current)));
+        window.localStorage.setItem(storageKey, JSON.stringify(persistable(restored)));
       } catch {
         // Storage can be unavailable in private mode.
       }
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [storageKey, tenantId]);
 
   // Readiness marker for automation; set after the restored state has rendered.
   useEffect(() => {
@@ -390,13 +414,13 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
   }, [state.theme]);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
+    if (hydratedTenant !== tenantId) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable(state)));
+      window.localStorage.setItem(storageKey, JSON.stringify(persistable(state)));
     } catch {
       // Ignore quota errors; the UI stays usable in memory.
     }
-  }, [state]);
+  }, [state, storageKey, tenantId, hydratedTenant]);
 
   const toastTimers = useRef<number[]>([]);
   useEffect(() => {
@@ -599,7 +623,8 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         setState(fresh);
         stateRef.current = fresh;
         try {
-          window.localStorage.removeItem(STORAGE_KEY);
+          window.localStorage.removeItem(storageKey);
+          window.localStorage.removeItem(LEGACY_STORAGE_KEY);
         } catch {
           // Ignore storage failures.
         }
@@ -784,6 +809,24 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
             account: accountDisplayName(account, draft.settings.companyName),
           });
         });
+        if (typeof window !== "undefined") {
+          enqueueMutation(window.localStorage, tenantId, {
+            clientMutationId: createMutationId(),
+            timestamp: new Date().toISOString(),
+            tenantId,
+            type: "refund",
+            payload: {
+              receiptNum,
+              paymentMethod: receipt.paymentMethod,
+              total: receipt.total,
+              subtotal: receipt.subtotal,
+              discountAmt: receipt.discountAmt,
+              tax: receipt.tax,
+              profit: receipt.profit,
+              items: receipt.items,
+            },
+          });
+        }
         showToast(`Receipt #${receiptNum} refunded — stock restored.`, "success");
       },
 
@@ -1012,6 +1055,28 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
           }
         });
 
+        if (typeof window !== "undefined") {
+          enqueueMutation(window.localStorage, tenantId, {
+            clientMutationId: createMutationId(),
+            timestamp: now.toISOString(),
+            tenantId,
+            type: "receipt",
+            payload: {
+              receiptNum: receipt.receiptNum,
+              staffId: receipt.staffId,
+              staffName: receipt.staffName,
+              tableName: receipt.tableName,
+              paymentMethod: receipt.paymentMethod,
+              subtotal: receipt.subtotal,
+              discountAmt: receipt.discountAmt,
+              tax: receipt.tax,
+              total: receipt.total,
+              profit: receipt.profit,
+              closedAt: receipt.closedAt,
+              items: receipt.items,
+            },
+          });
+        }
         showToast(`Check #${receipt.receiptNum} synced to Reports, Stock & Finances!`, "success");
         return receipt;
       },
@@ -2396,10 +2461,138 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         });
         showToast("Postie AI imported Invoice #INV-2026-11!", "success");
       },
+
+      completeOnboarding: (profile, preset) => {
+        update((draft) => {
+          draft.onboardingCompleted = true;
+          draft.tenantProfile = profile;
+          draft.plan = "pro";
+          draft.settings.companyName = profile.name;
+          draft.settings.currencyLabel = profile.currency;
+          draft.settings.timezone = profile.timezone;
+          draft.settings.showFloorPlan = preset.showFloorPlan;
+          if (preset.serviceCharge) draft.settings.serviceChargeFee = preset.serviceCharge;
+          if (preset.useManufacturing !== undefined) draft.settings.useManufacturing = preset.useManufacturing;
+          if (preset.enablePartialServing !== undefined) draft.settings.enablePartialServing = preset.enablePartialServing;
+          if (preset.shiftEndTime) draft.settings.shiftEndTime = preset.shiftEndTime;
+          if (preset.lowStockAlert) draft.settings.lowStockAlert = preset.lowStockAlert;
+          if (preset.deliveryEnabled !== undefined) draft.deliverySettings.enabled = preset.deliveryEnabled;
+
+          draft.stations = preset.stations.map((title) => ({
+            id: uid("station"),
+            title,
+            printTickets: true,
+          }));
+          draft.menuCategories = preset.categories.map((name) => ({
+            id: uid("mc"),
+            name,
+            emoji: "🍽️",
+            sales: 0,
+          }));
+          if (preset.orderingUnits?.length) {
+            draft.orderingUnits = preset.orderingUnits.map((unit) => ({
+              id: uid("ou"),
+              title: unit.title,
+              unit: unit.unit,
+              quantity: unit.quantity,
+            }));
+          }
+          if (preset.orderSources?.length) {
+            draft.orderSources = preset.orderSources.map((title) => ({
+              id: uid("os"),
+              title,
+              displayOnPos: true,
+              serviceFeePct: 0,
+            }));
+          }
+
+          draft.locations = [{
+            ...(draft.locations[0] ?? {
+              id: "loc-1",
+              number: 1,
+              bankAccountId: "acc-bank",
+              cashAccountId: "acc-cash",
+              safeAccountId: "acc-safe",
+              storageLocations: ["Storage 1"],
+              workingStart: "10:00",
+              workingEnd: "23:00",
+              is24_7: false,
+            }),
+            name: profile.locationName || profile.name,
+            address: profile.address,
+            login: profile.registerLogin,
+            storageLocations: draft.storageLocations.length ? draft.storageLocations : ["Storage 1"],
+          }];
+          draft.accessLocations = [profile.locationName || profile.name];
+          draft.storageLocations = draft.storageLocations.length ? draft.storageLocations : ["Storage 1"];
+          draft.storageLocationRecords = draft.storageLocationRecords.length
+            ? draft.storageLocationRecords
+            : [{ id: uid("sl"), title: "Storage 1", address: "", comment: "" }];
+
+          const cashAccount = draft.accounts.find((account) => account.isCashDrawer);
+          if (cashAccount) cashAccount.balance = Math.max(0, profile.openingFloat);
+          else draft.accounts.push({ id: uid("acc"), name: "Cash drawer", isCashDrawer: true, type: "Cash", balance: Math.max(0, profile.openingFloat) });
+          if (!draft.accounts.some((account) => account.id === "acc-bank")) {
+            draft.accounts.push({ id: "acc-bank", name: "Bank account", type: "Bank account", balance: 0 });
+          }
+          if (!draft.accounts.some((account) => account.id === "acc-safe")) {
+            draft.accounts.push({ id: "acc-safe", name: "Safe deposit", type: "Cash", balance: 0 });
+          }
+
+          const register = draft.registers[0];
+          if (register) {
+            register.title = profile.registerTitle || "Register 1";
+            register.login = profile.registerLogin;
+            register.location = profile.locationName || profile.name;
+          }
+          const owner = draft.employees[0];
+          if (owner) {
+            owner.name = profile.name;
+            owner.position = "Owner";
+            owner.pin = "0000";
+          }
+          draft.currentStaffId = draft.employees[0]?.id ?? draft.currentStaffId;
+        });
+        if (typeof window !== "undefined") {
+          try {
+            window.localStorage.setItem(tenantStorageKeys(tenantId).tenant, JSON.stringify(profile));
+            document.cookie = `tanawa_onboarding=complete; path=/; max-age=31536000; SameSite=Lax`;
+          } catch {
+            // Storage can be unavailable in private mode.
+          }
+        }
+        showToast(`${profile.name} is ready — welcome to TanAwa POS!`, "success");
+      },
+
+      flushOfflineQueue: async () => {
+        if (typeof window === "undefined" || !stateRef.current.isOnline) return;
+        if (readQueue(window.localStorage, tenantId).length === 0) return;
+        update((draft) => { draft.syncing = true; });
+        let syncedIds: string[] = [];
+        const result = await flushQueue(window.localStorage, tenantId, async (mutations) => {
+          const response = await fetch("/api/v1/receipts/sync", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ mutations }),
+          });
+          if (!response.ok) throw new Error(`Sync failed with ${response.status}`);
+          const data = (await response.json()) as { accepted?: string[] };
+          syncedIds = data.accepted ?? mutations.map((mutation) => mutation.clientMutationId);
+          return { accepted: syncedIds };
+        });
+        update((draft) => {
+          draft.syncing = false;
+          draft.offlineQueued = result.remaining;
+          if (!result.failed) {
+            draft.lastSyncedAt = new Date().toISOString();
+            draft.syncedMutationIds = Array.from(new Set([...draft.syncedMutationIds, ...syncedIds]));
+          }
+        });
+      },
     };
 
     return actionsObject;
-  }, [update, showToast, openModal, closeModal, setReceiptPreview]);
+  }, [update, showToast, openModal, closeModal, setReceiptPreview, tenantId, storageKey]);
 
   const value = useMemo<PosStoreValue>(() => ({ state, actions }), [state, actions]);
 
