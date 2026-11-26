@@ -15,6 +15,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
 import { usePosStore } from "@/lib/pos-store";
 import { NAV_SECTIONS } from "./nav";
 
@@ -50,22 +51,12 @@ function SidebarBody({ collapsed, onNavigate }: { collapsed: boolean; onNavigate
             title="Go to Get started"
             className="flex items-center gap-2 overflow-hidden"
           >
-            {dark ? (
-              <>
-                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/10 text-xs font-bold uppercase text-white">
-                  {state.settings.companyName.charAt(0)}
-                </span>
-                <span className="max-w-[95px] truncate text-xs font-semibold text-white">
-                  {state.settings.companyName}
-                </span>
-              </>
-            ) : (
-              <span className="flex h-9 w-9 items-center justify-center rounded-md border border-[#B89365]/40 bg-gradient-to-br from-[#DFC39D] to-[#C8A679] shadow-2xs">
-                <span className="text-[10px] font-extrabold tracking-tight text-white drop-shadow-2xs">
-                  Poster
-                </span>
-              </span>
-            )}
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F5A623] text-sm font-black text-white shadow-2xs">
+              T
+            </span>
+            <span className="max-w-[105px] truncate text-xs font-bold tracking-wide text-[#1F2328] dark:text-white">
+              TanAwa POS
+            </span>
           </Link>
         )}
 
@@ -304,6 +295,8 @@ export function Sidebar({
             {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
         )}
+
+        <UserButton />
       </div>
     </div>
   );

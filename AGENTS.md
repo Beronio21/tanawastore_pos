@@ -2,9 +2,9 @@
 
 ## 1. Project Overview
 
-`tanawastore_POS` is a full-stack **Cloud Management Console & Front-of-House Point of Sale (POS)** application built with **Next.js (App Router)**, modeled directly after the **Poster POS** (`tanawa.joinposter.com`) interface and workflows so existing staff and owners can operate it with zero retraining.
+`tanawastore_POS` is a full-stack **Cloud Management Console & Front-of-House Point of Sale (POS)** application built with **Next.js (App Router)**, modeled directly after the **Poster POS** interface and workflows so existing staff and owners can operate it with zero retraining.
 
-- **Primary Location / Tenant:** `tanawa` (`tanawa.joinposter.com`)
+- **Primary Location / Tenant:** `tanawa` (`tanawastore.pos`)
 - **Default Currency & Locale:** Philippine Peso (`₱` / `PHP`), Timezone `(+08:00) — Asia/Manila`
 - **Reference Document:** Always consult `docs/project-doc.md` for complete data models, module requirements, and business rules before implementing new features.
 

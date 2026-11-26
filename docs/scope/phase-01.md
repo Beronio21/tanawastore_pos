@@ -17,7 +17,7 @@
    ```
 2. Update `app/layout.tsx`:
    - Load `Inter` (`--font-sans`) and `JetBrains_Mono` (`--font-mono`) via `next/font/google`.
-   - Set `<title>Poster POS – Management Console (tanawa.joinposter.com) & POS Terminal</title>`.
+   - Set `<title>TanAwa POS – Management Console & POS Terminal</title>`.
    - Wrap `{children}` in `<PosStoreProvider>` (created in Step 3).
 3. Update `app/globals.css`:
    - Remove any reliance on `<script src="https://cdn.tailwindcss.com">` from the HTML file.
@@ -36,7 +36,7 @@ Inspect `poster_pos_management_console_terminal (2).html` and port all pure form
 2. **`lib/console-data.ts`:**
    - Define strict TypeScript interfaces for `LocationSettings`, `Employee`, `Station`, `MenuCategory`, `MenuItem`, `PreparationItem`, `StockItem`, `RecipeIngredient`, `Customer`, `Receipt`, `ReceiptItem`, `FinanceAccount`, `FinanceCategory`, `FinanceTransaction`, `StockMovement`, `GuestFeedback`, `PosOrderTab`, and `KdsTicket`.
    - Export `INITIAL_CONSOLE_STATE` containing the exact default records from `poster_pos_management_console_terminal (2).html`:
-     - **Location:** `companyName: "tanawa"`, `subdomain: "tanawa.joinposter.com"`, `currencySymbol: "₱"`, `timezone: "(+08:00) — Asia/Manila"`, `vatRate: 0.12`.
+     - **Location:** `companyName: "tanawa"`, `subdomain: "tanawastore.pos"`, `currencySymbol: "₱"`, `timezone: "(+08:00) — Asia/Manila"`, `vatRate: 0.12`.
      - **Owner / Staff:** `Philip Venje Beronio` (`pin: "0000"`, `phone: "00639758868962"`, `email: "2201107938@student.buksu.edu.ph"`, `position: "Owner"`), plus any seeded staff in the HTML file.
      - **Menu Items & Recipes:** `Borjomi 0.5l` (`10.00 ₱`), `Capucino 250ml` (`120.00 ₱`), `Croissant with chocolate` (`95.00 ₱`), preparations (`Pastry for croissants`), categories (`Cold drinks`, `Coffee`, `Bakery`), and stations (`Bar`, `Kitchen`).
      - **Inventory Stock (14 items totaling `₱215.20`):** `Borjomi 0.5l`, `Coffee`, `Coffee stirrer`, `Cover 250ml`, `Dark chocolate`, `Egg`, `Flour`, `Milk`, `Oil`, `Paper cup 250ml`, `Salt`, `Sugar`, `Water`, `Yeast`.

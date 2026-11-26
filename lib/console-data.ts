@@ -917,8 +917,8 @@ export function getExcludedMenuItemIds(
 
 const INITIAL_SETTINGS: LocationSettings = {
   companyName: "tanawa",
-  subdomain: "tanawa.joinposter.com",
-  address: "tanawa.joinposter.com",
+  subdomain: "tanawastore.pos",
+  address: "tanawastore.pos",
   timezone: "(+08:00) — Asia/Manila",
   shiftEndTime: "12:00 am",
   currencySymbol: "₱",

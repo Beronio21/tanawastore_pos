@@ -2330,7 +2330,7 @@ export function PosStoreProvider({ children }: { children: ReactNode }) {
         update((draft) => {
           draft.settings = { ...draft.settings, ...patch };
           if (patch.companyName) {
-            draft.settings.address = `${patch.companyName.toLowerCase().replace(/\s+/g, "")}.joinposter.com`;
+            draft.settings.address = `${patch.companyName.toLowerCase().replace(/\s+/g, "")}.tanawastore.pos`;
             draft.settings.subdomain = draft.settings.address;
           }
         });

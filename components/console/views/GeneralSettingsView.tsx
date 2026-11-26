@@ -152,7 +152,7 @@ export function GeneralSettingsView() {
           >
             <input value={settings.companyName} onChange={(event) => patch({ companyName: event.target.value })} className={INPUT} />
           </Row>
-          <Row label="Address in Poster">
+          <Row label="Store URL">
             <input value={settings.address} disabled readOnly className={INPUT} />
           </Row>
           <Row

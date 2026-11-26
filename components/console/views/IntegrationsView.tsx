@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, MoreVertical } from "lucide-react";
+import { Check, Copy, Eye, EyeOff, KeyRound, MoreVertical } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import type { Integration } from "@/lib/console-data";
 import { Card, ROW, TD, TH } from "../ui";
@@ -67,15 +67,6 @@ export function IntegrationsView() {
           <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">
             Access token is the key that allows third-party applications work with your account via the API. The token is issued to the user, who has connected the application, and the application works with Poster on his behalf.
           </p>
-          <a
-            href="https://dev.joinposter.com"
-            target="_blank"
-            rel="noreferrer"
-            className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[#D1D5DB] px-3 py-1.5 text-xs font-semibold text-[#1A73E8] hover:bg-sky-500/10 dark:border-[#3E434C] dark:text-[#7EB3F5]"
-          >
-            Documentation
-            <ExternalLink className="h-3 w-3" />
-          </a>
         </div>
       </Card>
 

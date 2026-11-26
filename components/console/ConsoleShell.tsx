@@ -3,6 +3,7 @@
 import { Suspense, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { UserButton } from "@clerk/nextjs";
 import { Menu, Monitor } from "lucide-react";
 import { TopTrialBanner } from "./TopTrialBanner";
 import { Sidebar } from "./Sidebar";
@@ -48,10 +49,13 @@ function MobileHeader({ onOpen }: { onOpen: () => void }) {
         <span>Menu</span>
       </button>
       <span className="text-xs font-bold">{pageTitleForPath(pathname)}</span>
-      <Link href="/pos" className="flex items-center gap-1 rounded-lg bg-[#1A73E8] px-2.5 py-1 text-xs font-bold text-white">
-        <Monitor className="h-3.5 w-3.5" />
-        Open POS
-      </Link>
+      <span className="flex items-center gap-2">
+        <UserButton />
+        <Link href="/pos" className="flex items-center gap-1 rounded-lg bg-[#1A73E8] px-2.5 py-1 text-xs font-bold text-white">
+          <Monitor className="h-3.5 w-3.5" />
+          Open POS
+        </Link>
+      </span>
     </div>
   );
 }

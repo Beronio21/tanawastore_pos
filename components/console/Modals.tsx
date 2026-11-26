@@ -71,7 +71,7 @@ export function SubscriptionModal() {
         <div className="flex items-center justify-between bg-[#0077FF] px-6 py-4 text-white">
           <div>
             <h3 className="text-base font-bold">Poster POS Subscription Plans</h3>
-            <p className="text-xs text-sky-100">Trial period ends on 7 December 2026 • Account: tanawa.joinposter.com</p>
+            <p className="text-xs text-sky-100">Trial period ends on 7 December 2026 • Account: tanawastore.pos</p>
           </div>
           <button type="button" onClick={actions.closeModal} aria-label="Close subscription modal" className="cursor-pointer text-white/80 hover:text-white">
             <X className="h-5 w-5" />

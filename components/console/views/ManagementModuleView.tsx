@@ -2836,7 +2836,6 @@ function OrderingUnitsView() {
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-white/5 dark:text-slate-500"><Inbox className="h-6 w-6" /></div>
             <div className="text-sm font-bold text-slate-800 dark:text-slate-100">Your ordering units will be here</div>
             <p className="mt-1 max-w-xl text-xs leading-relaxed text-slate-500 dark:text-slate-400">Ordering units let you record supplies in convenient packs — for example, a box of 30 — instead of counting each item.</p>
-            <a href="https://support.joinposter.com" target="_blank" rel="noreferrer" className="mt-3 text-xs font-semibold text-[#1A73E8] hover:underline dark:text-[#7EB3F5]">Learn how it works in the knowledge base ↗</a>
           </div>
         )}
       </Card>

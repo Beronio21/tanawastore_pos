@@ -11,7 +11,7 @@ export function SupportWidget() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { from: "agent", text: "Hello Philip! How can we help with tanawa.joinposter.com today?" },
+    { from: "agent", text: "Hello Philip! How can we help with tanawastore.pos today?" },
   ]);
 
   function send(event: React.FormEvent) {

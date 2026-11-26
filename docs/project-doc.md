@@ -4,12 +4,12 @@
 
 **`tanawastore_POS`** is a custom-built, cloud-native Point of Sale (POS) and restaurant/retail back-office management platform engineered with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, and **PostgreSQL**.
 
-The system replicates the layout, navigation hierarchy, and operational workflows of **Poster POS** (`tanawa.joinposter.com`) so that owners, managers, cashiers, and kitchen staff can transition onto a self-hosted, customizable Next.js stack with zero learning curve.
+The system replicates the layout, navigation hierarchy, and operational workflows of a modern cloud POS console so that owners, managers, cashiers, and kitchen staff can transition onto a self-hosted, customizable Next.js stack with zero learning curve.
 
 ### Target Business Profile (Default Tenant)
 
 - **Business Name:** `tanawa`
-- **Console Subdomain:** `tanawa.joinposter.com`
+- **Store URL:** `tanawastore.pos`
 - **Owner Account:** `Philip Venje Beronio` (`PIN: 0000`, `00639758868962`)
 - **Currency & Tax:** Philippine Peso (`₱`), 12% VAT calculation
 - **Timezone:** `(+08:00) — Asia/Manila`
@@ -130,7 +130,7 @@ datasource db {
 model Location {
   id             String   @id @default(cuid())
   companyName    String   @default("tanawa")
-  subdomain      String   @unique @default("tanawa.joinposter.com")
+  subdomain      String   @unique @default("tanawastore.pos")
   currencySymbol String   @default("₱")
   timezone       String   @default("Asia/Manila")
   vatRate        Decimal  @default(0.12) @db.Decimal(5, 4)
