@@ -93,19 +93,42 @@ export function GeneralSettingsView() {
     setForm((current) => (current ? { ...current, ...value } : current));
   };
 
-  const onLogoFile = (file: File | undefined) => {
+  const readDataUrl = (file: File) =>
+    new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => resolve("");
+      reader.readAsDataURL(file);
+    });
+
+  const onLogoFile = async (file: File | undefined) => {
     if (!file) return;
-    if (!["image/jpeg", "image/png", "image/gif"].includes(file.type)) {
-      actions.showToast("Logo must be a JPEG, PNG or GIF image.", "info");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      actions.showToast("Logo must be a JPEG, PNG or WebP image.", "info");
       return;
     }
     if (file.size > MAX_LOGO_BYTES) {
       actions.showToast("Logo file is larger than 5 MB.", "info");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => patch({ logo: String(reader.result ?? "") });
-    reader.readAsDataURL(file);
+    // R2 when configured; the endpoint itself falls back to a local data URL.
+    try {
+      const body = new FormData();
+      body.set("file", file);
+      body.set("folder", "logos");
+      const response = await fetch("/api/v1/uploads", { method: "POST", body });
+      if (response.ok) {
+        const payload = (await response.json()) as { url?: string };
+        if (payload.url) {
+          patch({ logo: payload.url, logoUrl: payload.url });
+          return;
+        }
+      }
+    } catch {
+      // Network/R2 unavailable — keep the logo working offline.
+    }
+    const dataUrl = await readDataUrl(file);
+    if (dataUrl) patch({ logo: dataUrl, logoUrl: dataUrl });
   };
 
   const save = () => {
@@ -128,6 +151,8 @@ export function GeneralSettingsView() {
       payrollTracking: form.payrollTracking,
       lowStockAlert: form.lowStockAlert,
       logo: form.logo,
+      logoUrl: form.logoUrl,
+      tin: form.tin?.trim() ?? "",
     });
     dirtyRef.current = false;
   };
@@ -155,12 +180,20 @@ export function GeneralSettingsView() {
           <Row label="Store URL">
             <input value={settings.address} disabled readOnly className={INPUT} />
           </Row>
+          <Row label="TIN / Business Registration No." helper="Printed on thermal receipts for BIR compliance. Leave empty to hide the line.">
+            <input
+              value={settings.tin ?? ""}
+              onChange={(event) => patch({ tin: event.target.value })}
+              placeholder="e.g. 123-456-789-000"
+              className={`${INPUT} max-w-xs font-mono`}
+            />
+          </Row>
           <Row
             label="Logo"
             helper="It will be printed in the receipt header. Supported formats include JPEG, PNG or GIF. File size is up to 5 MB."
           >
             <div className="flex items-center gap-3">
-              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/gif" className="hidden" onChange={(event) => { onLogoFile(event.target.files?.[0]); event.target.value = ""; }} />
+              <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => { void onLogoFile(event.target.files?.[0]); event.target.value = ""; }} />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -169,11 +202,11 @@ export function GeneralSettingsView() {
                 <Upload className="h-3.5 w-3.5" />
                 Upload...
               </button>
-              {settings.logo && (
+              {(settings.logoUrl || settings.logo) && (
                 <span className="relative inline-flex items-center gap-2">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={settings.logo} alt="Logo preview" className="h-9 w-auto max-w-32 rounded border border-[#E5E8EC] bg-white object-contain p-0.5 dark:border-[#3E434C]" />
-                  <button type="button" aria-label="Remove logo" onClick={() => patch({ logo: "" })} className="cursor-pointer text-slate-400 hover:text-rose-500"><X className="h-3.5 w-3.5" /></button>
+                  <img src={settings.logoUrl || settings.logo} alt="Logo preview" className="h-9 w-auto max-w-32 rounded border border-[#E5E8EC] bg-white object-contain p-0.5 dark:border-[#3E434C]" />
+                  <button type="button" aria-label="Remove logo" onClick={() => patch({ logo: "", logoUrl: "" })} className="cursor-pointer text-slate-400 hover:text-rose-500"><X className="h-3.5 w-3.5" /></button>
                 </span>
               )}
             </div>

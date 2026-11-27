@@ -1,0 +1,169 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: e2e\security-and-access.spec.ts >> admin password blocks deletes after a check is printed
+- Location: tests\e2e\security-and-access.spec.ts:7:1
+
+# Error details
+
+```
+Test timeout of 300000ms exceeded.
+```
+
+# Page snapshot
+
+```yaml
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - banner [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e7]: Register in “tanawa”tanawa
+        - generic "All receipts synced" [ref=f1e8]: Online • Synced
+      - navigation [ref=f1e9]:
+        - button "Register" [ref=f1e10]
+        - button "Kitchen Kit" [ref=f1e11]
+      - generic [ref=f1e12]:
+        - generic [ref=f1e13]: Philip Venje Beronio
+        - button "Orders" [ref=f1e14]
+        - button "Lock" [ref=f1e19]
+        - link "Console" [ref=f1e23] [cursor=pointer]:
+          - /url: /manage/welcome
+    - generic [ref=f1e26]:
+      - complementary [ref=f1e27]:
+        - generic [ref=f1e28]:
+          - button "Receipt" [ref=f1e29] [cursor=pointer]
+          - button "Customer" [ref=f1e30] [cursor=pointer]
+        - generic [ref=f1e31]:
+          - 'button "Receipt #1" [ref=f1e33]'
+          - button "+ New" [ref=f1e34]
+        - generic [ref=f1e35]:
+          - generic [ref=f1e36]: Order source
+          - combobox "Order source" [ref=f1e37]:
+            - option "Dine-in" [selected]
+        - generic [ref=f1e38]:
+          - generic [ref=f1e39]: Delivery
+          - combobox "Delivery area" [ref=f1e40]:
+            - option "None" [selected]
+            - option "Main area · 0.00 ₱ · ~60 min"
+        - generic [ref=f1e41]:
+          - generic [ref=f1e42]: Customer
+          - combobox "Customer" [ref=f1e43]:
+            - option "No customer" [selected]
+        - button "+ New customer" [ref=f1e44] [cursor=pointer]
+        - generic [ref=f1e48]:
+          - button "Select" [ref=f1e49] [cursor=pointer]
+          - button "Order actions" [ref=f1e51] [cursor=pointer]
+        - generic [ref=f1e56]:
+          - generic [ref=f1e57]:
+            - generic [ref=f1e58]: Capucino 250ml
+            - button "−" [ref=f1e59]
+            - generic [ref=f1e60]: "1"
+            - button "+" [ref=f1e61]
+            - generic [ref=f1e62]: 120.00 ₱
+          - generic [ref=f1e63]:
+            - generic [ref=f1e64]: Croissant with chocolate
+            - button "−" [ref=f1e65]
+            - generic [ref=f1e66]: "1"
+            - button "+" [ref=f1e67]
+            - generic [ref=f1e68]: 95.00 ₱
+        - generic [ref=f1e69]:
+          - generic [ref=f1e70]:
+            - generic [ref=f1e71]: Subtotal
+            - generic [ref=f1e72]: 215.00 ₱
+          - generic [ref=f1e73]:
+            - generic [ref=f1e74]: VAT
+            - generic [ref=f1e75]: 25.80 ₱
+          - generic [ref=f1e76]:
+            - generic [ref=f1e77]: Total
+            - generic [ref=f1e78]: 240.80 ₱
+        - generic [ref=f1e79]:
+          - button "To Kitchen" [ref=f1e80]
+          - button "Pay 240.80 ₱" [ref=f1e81]
+        - generic [ref=f1e82]:
+          - button "Print check" [active] [ref=f1e83]
+          - button "Inventory" [ref=f1e88]
+          - button "Supply" [ref=f1e92]
+      - main [ref=f1e97]:
+        - generic [ref=f1e98]:
+          - button "All" [ref=f1e99]
+          - button "☕ Coffee" [ref=f1e100]
+          - button "🥐 Pastry" [ref=f1e101]
+          - button "🍶 Cold drinks" [ref=f1e102]
+          - generic [ref=f1e103]:
+            - textbox "Barcode scan" [ref=f1e107]:
+              - /placeholder: Search menu
+            - button "Barcode scan" [ref=f1e108] [cursor=pointer]
+          - button "Promotions" [ref=f1e114] [cursor=pointer]
+        - generic [ref=f1e118]:
+          - button "🍶 Borjomi 0.5l 10.00 ₱" [ref=f1e119]:
+            - text: 🍶
+            - generic [ref=f1e120]: Borjomi 0.5l
+            - generic [ref=f1e121]: 10.00 ₱
+          - button "☕ Capucino 250ml 120.00 ₱" [ref=f1e122]:
+            - text: ☕
+            - generic [ref=f1e123]: Capucino 250ml
+            - generic [ref=f1e124]: 120.00 ₱
+          - button "🥐 Croissant with chocolate 95.00 ₱" [ref=f1e125]:
+            - text: 🥐
+            - generic [ref=f1e126]: Croissant with chocolate
+            - generic [ref=f1e127]: 95.00 ₱
+    - generic [ref=f1e129]:
+      - generic [ref=f1e131]:
+        - banner [ref=f1e132]:
+          - generic [ref=f1e133]: tanawa
+          - generic [ref=f1e134]: "Receipt #1"
+        - generic [ref=f1e135]:
+          - generic [ref=f1e136]:
+            - generic [ref=f1e137]: Date
+            - generic [ref=f1e138]: 27 Nov, 12:18 PM
+          - generic [ref=f1e139]:
+            - generic [ref=f1e140]: Cashier
+            - generic [ref=f1e141]: Philip Venje Beronio
+          - generic [ref=f1e142]:
+            - generic [ref=f1e143]: Order
+            - generic [ref=f1e144]: Table 1
+        - generic [ref=f1e145]:
+          - generic [ref=f1e146]:
+            - generic [ref=f1e147]:
+              - generic [ref=f1e148]: 1 × Capucino 250ml
+              - generic [ref=f1e149]: 120.00 ₱
+            - generic [ref=f1e150]:
+              - generic [ref=f1e151]: "@ 120.00 ₱"
+              - generic [ref=f1e152]: 120.00 ₱
+          - generic [ref=f1e153]:
+            - generic [ref=f1e154]:
+              - generic [ref=f1e155]: 1 × Croissant with chocolate
+              - generic [ref=f1e156]: 95.00 ₱
+            - generic [ref=f1e157]:
+              - generic [ref=f1e158]: "@ 95.00 ₱"
+              - generic [ref=f1e159]: 95.00 ₱
+        - generic [ref=f1e160]:
+          - generic [ref=f1e161]:
+            - generic [ref=f1e162]: VATable Sales
+            - generic [ref=f1e163]: 215.00 ₱
+          - generic [ref=f1e164]:
+            - generic [ref=f1e165]: VAT Amount (12%)
+            - generic [ref=f1e166]: 25.80 ₱
+          - generic [ref=f1e167]:
+            - generic [ref=f1e168]: VAT-Exempt Sales
+            - generic [ref=f1e169]: 0.00 ₱
+          - generic [ref=f1e170]:
+            - generic [ref=f1e171]: TOTAL (₱)
+            - generic [ref=f1e172]: 240.80 ₱
+          - generic [ref=f1e173]:
+            - generic [ref=f1e174]: Payment Method
+            - generic [ref=f1e175]: Cash
+        - contentinfo [ref=f1e176]:
+          - generic [ref=f1e177]: An exciting opportunity lies ahead of you
+          - generic [ref=f1e178]: Thank you! Powered by Poster POS
+      - generic [ref=f1e179]:
+        - button "Print Receipt" [ref=f1e180] [cursor=pointer]
+        - button "Done" [ref=f1e185] [cursor=pointer]
+  - button "Open Next.js Dev Tools" [ref=f1e193] [cursor=pointer]
+  - alert [ref=f1e197]
+```

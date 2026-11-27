@@ -160,6 +160,16 @@ export function ReceiptSettingsView() {
       <section className="mt-6 border-t border-[#E5E8EC] pt-5 dark:border-[#33373E]">
         <CheckRow label="Print address" checked={settings.printAddress} onChange={(value) => patch({ printAddress: value })} />
         <div className="mt-1 divide-y divide-[#EEF1F4] dark:divide-[#2C3036]">
+          <Row label="Thermal paper width" helper="Match your printer roll: 58 mm for compact handheld printers, 80 mm for standard counter printers.">
+            <select
+              value={settings.paperWidth ?? "80mm"}
+              onChange={(event) => patch({ paperWidth: event.target.value as "58mm" | "80mm" })}
+              className={`${INPUT} max-w-xs cursor-pointer`}
+            >
+              <option value="80mm">80 mm</option>
+              <option value="58mm">58 mm</option>
+            </select>
+          </Row>
           <Row label="Receipt language">
             <select value={settings.receiptLanguage} onChange={(event) => patch({ receiptLanguage: event.target.value as ReceiptLanguage })} className={`${INPUT} max-w-xs cursor-pointer`}>
               {LANGUAGES.map((language) => <option key={language} value={language}>{language}</option>)}

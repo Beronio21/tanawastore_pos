@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Calendar, ChevronDown, ChevronUp } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney, formatMoneyPrefix } from "@/lib/format";
+import { datedFilename, exportToCsv } from "@/lib/export-utils";
+import { splitVat } from "@/lib/vat";
 import type { Receipt } from "@/lib/console-data";
-import { summarizeReceipts } from "@/lib/business-math";
 import { Card, PageHeader } from "../ui";
 
 type Granularity = "day" | "week" | "month";
@@ -22,6 +23,8 @@ type Bucket = {
 };
 
 const DAY = 24 * 60 * 60 * 1000;
+const DAY_LABELS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
+const HOUR_LABELS = Array.from({ length: 24 }, (_, hour) => String(hour));
 
 function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -50,15 +53,6 @@ function monthShort(date: Date): string {
 function startOfWeek(date: Date): Date {
   const offset = (date.getDay() + 6) % 7;
   return addDays(date, -offset);
-}
-
-/** Closed sales keep only a clock label for legacy rows; fall back to today. */
-function receiptDate(receipt: Receipt): Date {
-  if (receipt.closedDate) {
-    const parsed = new Date(`${receipt.closedDate}T00:00:00`);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-  return startOfDay(new Date());
 }
 
 function receiptHour(receipt: Receipt): number | null {
@@ -122,54 +116,6 @@ const PRESETS: { label: string; range: () => DateRange }[] = [
   },
 ];
 
-function buildBuckets(
-  range: DateRange,
-  granularity: Granularity,
-  receipts: Receipt[],
-  costOf: (receipt: Receipt) => number,
-): Bucket[] {
-  const buckets: Bucket[] = [];
-  const empty = () => ({ revenue: 0, profit: 0, receipts: 0, customers: 0 });
-
-  if (granularity === "day") {
-    for (let cursor = range.start; cursor <= range.end; cursor = addDays(cursor, 1)) {
-      buckets.push({ key: isoDate(cursor), label: `${cursor.getDate()} ${monthShort(cursor)}`, ...empty() });
-    }
-  } else if (granularity === "week") {
-    for (let cursor = startOfWeek(range.start); cursor <= range.end; cursor = addDays(cursor, 7)) {
-      buckets.push({ key: isoDate(cursor), label: `${cursor.getDate()} ${monthShort(cursor)}`, ...empty() });
-    }
-  } else {
-    for (
-      let cursor = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
-      cursor <= range.end;
-      cursor = addMonths(cursor, 1)
-    ) {
-      buckets.push({ key: `${cursor.getFullYear()}-${cursor.getMonth()}`, label: `${monthShort(cursor)} ${cursor.getFullYear()}`, ...empty() });
-    }
-  }
-
-  const index = new Map(buckets.map((bucket, position) => [bucket.key, position]));
-  receipts.forEach((receipt) => {
-    const date = receiptDate(receipt);
-    const key =
-      granularity === "day"
-        ? isoDate(date)
-        : granularity === "week"
-          ? isoDate(startOfWeek(date))
-          : `${date.getFullYear()}-${date.getMonth()}`;
-    const position = index.get(key);
-    if (position === undefined) return;
-    const bucket = buckets[position];
-    bucket.revenue += receipt.total;
-    bucket.profit += receipt.total - costOf(receipt);
-    bucket.receipts += 1;
-    if (receipt.customerName?.trim()) bucket.customers += 1;
-  });
-
-  return buckets;
-}
-
 function DeltaBadge({ value }: { value: number | null }) {
   if (value === null) return null;
   return (
@@ -181,14 +127,16 @@ function DeltaBadge({ value }: { value: number | null }) {
 }
 
 function Sparkline({ values, color }: { values: number[]; color: string }) {
-  const max = Math.max(1, ...values);
-  const points = values
-    .map((value, index) => {
-      const x = values.length > 1 ? (index / (values.length - 1)) * 100 : 50;
-      const y = 28 - (value / max) * 24;
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const points = useMemo(() => {
+    const max = Math.max(1, ...values);
+    return values
+      .map((value, index) => {
+        const x = values.length > 1 ? (index / (values.length - 1)) * 100 : 50;
+        const y = 28 - (value / max) * 24;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [values]);
   return (
     <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="h-6 w-16 opacity-90">
       <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -204,16 +152,27 @@ function RevenueChart({ buckets, money }: { buckets: Bucket[]; money: (value: nu
   const padTop = 18;
   const padBottom = 26;
 
-  const max = Math.max(1, ...buckets.map((bucket) => bucket.revenue));
-  const stepX = buckets.length > 1 ? (width - padX * 2) / (buckets.length - 1) : 0;
+  const { line, area, max, stepX } = useMemo(() => {
+    const chartMax = Math.max(1, ...buckets.map((bucket) => bucket.revenue));
+    const chartStep = buckets.length > 1 ? (width - padX * 2) / (buckets.length - 1) : 0;
+    const xAt = (index: number) => padX + index * chartStep;
+    const yAt = (value: number) => padTop + (1 - value / chartMax) * (height - padTop - padBottom);
+    const path = buckets
+      .map((bucket, index) => `${index === 0 ? "M" : "L"} ${xAt(index)} ${yAt(bucket.revenue)}`)
+      .join(" ");
+    return {
+      line: path,
+      area:
+        buckets.length > 0
+          ? `${path} L ${xAt(buckets.length - 1)} ${height - padBottom} L ${xAt(0)} ${height - padBottom} Z`
+          : "",
+      max: chartMax,
+      stepX: chartStep,
+    };
+  }, [buckets]);
+
   const xFor = (index: number) => padX + index * stepX;
   const yFor = (value: number) => padTop + (1 - value / max) * (height - padTop - padBottom);
-
-  const line = buckets.map((bucket, index) => `${index === 0 ? "M" : "L"} ${xFor(index)} ${yFor(bucket.revenue)}`).join(" ");
-  const area =
-    buckets.length > 0
-      ? `${line} L ${xFor(buckets.length - 1)} ${height - padBottom} L ${xFor(0)} ${height - padBottom} Z`
-      : "";
 
   const active = hover !== null ? buckets[hover] : null;
 
@@ -346,32 +305,171 @@ export function SalesReportView() {
   const money = (value: number) => formatMoney(value, symbol);
   const moneyPrefix = (value: number) => (value < 0 ? `-${formatMoneyPrefix(Math.abs(value), symbol)}` : formatMoneyPrefix(value, symbol));
 
-  const costOf = (receipt: Receipt): number =>
-    receipt.items.reduce((sum, line) => {
-      const menuItem = state.menuItems.find((entry) => entry.id === line.menuId);
-      return sum + (menuItem?.cost ?? 0) * line.qty;
-    }, 0);
+  const costByMenuId = useMemo(
+    () => new Map(state.menuItems.map((item) => [item.id, item.cost])),
+    [state.menuItems],
+  );
 
-  const closed = state.receipts.filter((receipt) => !receipt.refunded);
-  const demoMode = closed.length === 0;
+  const report = useMemo(() => {
+    const now = new Date();
+    const todayKey = isoDate(now);
+    const yesterdayKey = isoDate(addDays(now, -1));
+    const rangeStart = range.start.getTime();
+    const rangeEnd = range.end.getTime() + DAY - 1;
 
-  const todayKey = isoDate(new Date());
-  const todayReceipts = closed.filter((receipt) => (receipt.closedDate ? receipt.closedDate === todayKey : true));
-  const yesterdayKey = isoDate(addDays(new Date(), -1));
-  const yesterdayReceipts = closed.filter((receipt) => receipt.closedDate === yesterdayKey);
+    const buckets: Bucket[] = [];
+    const empty = () => ({ revenue: 0, profit: 0, receipts: 0, customers: 0 });
+    if (granularity === "day") {
+      for (let cursor = range.start; cursor <= range.end; cursor = addDays(cursor, 1)) {
+        buckets.push({ key: isoDate(cursor), label: `${cursor.getDate()} ${monthShort(cursor)}`, ...empty() });
+      }
+    } else if (granularity === "week") {
+      for (let cursor = startOfWeek(range.start); cursor <= range.end; cursor = addDays(cursor, 7)) {
+        buckets.push({ key: isoDate(cursor), label: `${cursor.getDate()} ${monthShort(cursor)}`, ...empty() });
+      }
+    } else {
+      for (
+        let cursor = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
+        cursor <= range.end;
+        cursor = addMonths(cursor, 1)
+      ) {
+        buckets.push({ key: `${cursor.getFullYear()}-${cursor.getMonth()}`, label: `${monthShort(cursor)} ${cursor.getFullYear()}`, ...empty() });
+      }
+    }
+    const bucketIndex = new Map(buckets.map((bucket, position) => [bucket.key, position]));
 
-  const today = demoMode ? { ...DEMO_BASELINE.today } : summarizeReceipts(todayReceipts, costOf);
-  const yesterday = summarizeReceipts(yesterdayReceipts, costOf);
+    const todayAcc = { revenue: 0, cost: 0, receipts: 0, customers: new Set<string>() };
+    const yesterdayAcc = { revenue: 0, cost: 0, receipts: 0, customers: new Set<string>() };
+    const periodAcc = { revenue: 0, cost: 0, receipts: 0, customers: new Set<string>() };
+    const hourly = new Array<number>(24).fill(0);
+    const byWeekday = new Array<number>(7).fill(0);
+    const payment = {
+      cash: { turnover: 0, orders: 0 },
+      card: { turnover: 0, orders: 0 },
+      bonuses: { turnover: 0, orders: 0 },
+    };
+    const productTotals = new Map<string, number>();
+    let closedCount = 0;
 
-  const rangeStart = range.start.getTime();
-  const rangeEnd = range.end.getTime() + DAY - 1;
-  const periodReceipts = closed.filter((receipt) => {
-    const time = receiptDate(receipt).getTime();
-    return time >= rangeStart && time <= rangeEnd;
-  });
-  const period = demoMode ? { ...DEMO_BASELINE.period } : summarizeReceipts(periodReceipts, costOf);
+    for (const receipt of state.receipts) {
+      if (receipt.refunded) continue;
+      closedCount += 1;
 
-  const buckets = buildBuckets(range, granularity, periodReceipts, costOf);
+      // Parse the sale timestamp at most once per receipt.
+      const rawDate = receipt.closedDate;
+      let date: Date | null = null;
+      if (rawDate) {
+        const parsed = new Date(`${rawDate.slice(0, 10)}T00:00:00`);
+        if (!Number.isNaN(parsed.getTime())) date = parsed;
+      }
+      if (!date) date = startOfDay(now);
+      const dayKey = isoDate(date);
+      const inPeriod = date.getTime() >= rangeStart && date.getTime() <= rangeEnd;
+
+      let cost = 0;
+      for (const line of receipt.items) {
+        cost += (costByMenuId.get(line.menuId) ?? 0) * line.qty;
+      }
+      const customer = receipt.customerName?.trim();
+
+      // Legacy rows without a closedDate still count toward "today".
+      if (!rawDate || rawDate === todayKey) {
+        todayAcc.revenue += receipt.total;
+        todayAcc.cost += cost;
+        todayAcc.receipts += 1;
+        if (customer) todayAcc.customers.add(customer);
+      }
+      if (rawDate === yesterdayKey) {
+        yesterdayAcc.revenue += receipt.total;
+        yesterdayAcc.cost += cost;
+        yesterdayAcc.receipts += 1;
+        if (customer) yesterdayAcc.customers.add(customer);
+      }
+
+      if (!inPeriod) continue;
+
+      periodAcc.revenue += receipt.total;
+      periodAcc.cost += cost;
+      periodAcc.receipts += 1;
+      if (customer) periodAcc.customers.add(customer);
+
+      const bucketKey =
+        granularity === "day"
+          ? dayKey
+          : granularity === "week"
+            ? isoDate(startOfWeek(date))
+            : `${date.getFullYear()}-${date.getMonth()}`;
+      const position = bucketIndex.get(bucketKey);
+      if (position !== undefined) {
+        const bucket = buckets[position];
+        bucket.revenue += receipt.total;
+        bucket.profit += receipt.total - cost;
+        bucket.receipts += 1;
+        if (customer) bucket.customers += 1;
+      }
+
+      const hour = receiptHour(receipt);
+      if (hour !== null) hourly[hour] += receipt.total;
+      byWeekday[(date.getDay() + 6) % 7] += receipt.total;
+
+      if (receipt.paymentMethod === "Cash") {
+        payment.cash.turnover += receipt.total;
+        payment.cash.orders += 1;
+      } else {
+        payment.card.turnover += receipt.total;
+        payment.card.orders += 1;
+      }
+      const bonus = receipt.cashBackRedeemed ?? 0;
+      payment.bonuses.turnover += bonus;
+      if (bonus > 0) payment.bonuses.orders += 1;
+
+      for (const line of receipt.items) {
+        productTotals.set(line.name, (productTotals.get(line.name) ?? 0) + line.qty);
+      }
+    }
+
+    const summarize = (acc: { revenue: number; cost: number; receipts: number; customers: Set<string> }) => ({
+      revenue: acc.revenue,
+      profit: acc.revenue - acc.cost,
+      receipts: acc.receipts,
+      customers: acc.customers.size,
+      average: acc.receipts ? acc.revenue / acc.receipts : 0,
+    });
+
+    const rankedProducts =
+      productTotals.size > 0
+        ? [...productTotals.entries()]
+            .map(([name, qty]) => ({ name, qty }))
+            .sort((left, right) => right.qty - left.qty)
+            .slice(0, 10)
+        : DEMO_BASELINE.products;
+    const split = Math.ceil(rankedProducts.length / 2);
+
+    const trendBuckets = buckets.slice(-12);
+
+    return {
+      demoMode: closedCount === 0,
+      today: summarize(todayAcc),
+      yesterday: summarize(yesterdayAcc),
+      period: summarize(periodAcc),
+      buckets,
+      hourly,
+      byWeekday,
+      paymentRows: [
+        { label: "Cash", turnover: payment.cash.turnover, orders: payment.cash.orders },
+        { label: "Card", turnover: payment.card.turnover, orders: payment.card.orders },
+        { label: "Bonuses", turnover: payment.bonuses.turnover, orders: payment.bonuses.orders },
+      ],
+      productColumns: [rankedProducts.slice(0, split), rankedProducts.slice(split)],
+      receiptTrend: trendBuckets.map((bucket) => bucket.receipts),
+      customerTrend: trendBuckets.map((bucket) => bucket.customers),
+    };
+  }, [state.receipts, costByMenuId, range, granularity]);
+
+  const { demoMode, buckets, hourly, byWeekday, paymentRows, productColumns, receiptTrend, customerTrend } = report;
+  const today = demoMode ? { ...DEMO_BASELINE.today } : report.today;
+  const yesterday = report.yesterday;
+  const period = demoMode ? { ...DEMO_BASELINE.period } : report.period;
 
   const delta = (current: number, previous: number): number | null => {
     if (demoMode) return 100;
@@ -384,58 +482,48 @@ export function SalesReportView() {
     customers: delta(today.customers, yesterday.customers),
   };
 
-  const hourly = Array.from({ length: 24 }, () => 0);
-  periodReceipts.forEach((receipt) => {
-    const hour = receiptHour(receipt);
-    if (hour !== null) hourly[hour] += receipt.total;
-  });
-
-  const dayLabels = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-  const byWeekday = Array.from({ length: 7 }, () => 0);
-  periodReceipts.forEach((receipt) => {
-    const dayIndex = (receiptDate(receipt).getDay() + 6) % 7;
-    byWeekday[dayIndex] += receipt.total;
-  });
-
-  const cashReceipts = periodReceipts.filter((receipt) => receipt.paymentMethod === "Cash");
-  const cardReceipts = periodReceipts.filter((receipt) => receipt.paymentMethod !== "Cash");
-  const bonusReceipts = periodReceipts.filter((receipt) => (receipt.cashBackRedeemed ?? 0) > 0);
-  const paymentRows = [
-    {
-      label: "Cash",
-      turnover: cashReceipts.reduce((sum, receipt) => sum + receipt.total, 0),
-      orders: cashReceipts.length,
-    },
-    {
-      label: "Card",
-      turnover: cardReceipts.reduce((sum, receipt) => sum + receipt.total, 0),
-      orders: cardReceipts.length,
-    },
-    {
-      label: "Bonuses",
-      turnover: periodReceipts.reduce((sum, receipt) => sum + (receipt.cashBackRedeemed ?? 0), 0),
-      orders: bonusReceipts.length,
-    },
-  ];
-
-  const productTotals = new Map<string, number>();
-  periodReceipts.forEach((receipt) => {
-    receipt.items.forEach((line) => {
-      productTotals.set(line.name, (productTotals.get(line.name) ?? 0) + line.qty);
+  const exportSales = () => {
+    const bucketKeyForReceipt = (receipt: Receipt): string => {
+      const date = receipt.closedDate ? new Date(`${receipt.closedDate.slice(0, 10)}T00:00:00`) : new Date();
+      const safe = Number.isNaN(date.getTime()) ? new Date() : date;
+      return granularity === "day"
+        ? isoDate(safe)
+        : granularity === "week"
+          ? isoDate(startOfWeek(safe))
+          : `${safe.getFullYear()}-${safe.getMonth()}`;
+    };
+    const rows = buckets.map((bucket) => {
+      let discounts = 0;
+      let cash = 0;
+      let card = 0;
+      let online = 0;
+      for (const receipt of state.receipts) {
+        if (receipt.refunded || bucketKeyForReceipt(receipt) !== bucket.key) continue;
+        discounts += receipt.discountAmt;
+        if (receipt.paymentMethod === "Cash") cash += receipt.total;
+        else if (receipt.paymentMethod === "Card") card += receipt.total;
+        else online += receipt.total;
+      }
+      const vat = splitVat(bucket.revenue, state.settings.vatRate);
+      return [
+        bucket.label,
+        bucket.revenue.toFixed(2),
+        (bucket.revenue - bucket.profit).toFixed(2),
+        bucket.profit.toFixed(2),
+        discounts.toFixed(2),
+        vat.vatAmount.toFixed(2),
+        bucket.receipts,
+        cash.toFixed(2),
+        card.toFixed(2),
+        online.toFixed(2),
+      ];
     });
-  });
-  const rankedProducts =
-    productTotals.size > 0
-      ? [...productTotals.entries()]
-          .map(([name, qty]) => ({ name, qty }))
-          .sort((left, right) => right.qty - left.qty)
-          .slice(0, 10)
-      : DEMO_BASELINE.products;
-  const productColumns = [rankedProducts.slice(0, Math.ceil(rankedProducts.length / 2)), rankedProducts.slice(Math.ceil(rankedProducts.length / 2))];
-
-  const trendBuckets = buckets.slice(-12);
-  const receiptTrend = trendBuckets.map((bucket) => bucket.receipts);
-  const customerTrend = trendBuckets.map((bucket) => bucket.customers);
+    exportToCsv(
+      datedFilename("tanawa-sales-report"),
+      ["Date", "Revenue", "COGS", "Gross Profit", "Discounts", "12% VAT", "Receipts", "Cash", "Card", "Online"],
+      rows,
+    );
+  };
 
   const summaryTiles = [
     {
@@ -473,6 +561,7 @@ export function SalesReportView() {
         actions={{
           export: true,
           print: true,
+          onExport: exportSales,
           extra: (
             <div className="relative">
               <button
@@ -644,18 +733,13 @@ export function SalesReportView() {
         <Card className="p-5">
           <h2 className="text-sm font-bold">By Hour</h2>
           <div className="mt-4">
-            <MiniBarChart
-              values={hourly}
-              labels={Array.from({ length: 24 }, (_, hour) => String(hour))}
-              money={money}
-              unitLabel="Hour"
-            />
+            <MiniBarChart values={hourly} labels={HOUR_LABELS} money={money} unitLabel="Hour" />
           </div>
         </Card>
         <Card className="p-5">
           <h2 className="text-sm font-bold">By Day</h2>
           <div className="mt-4">
-            <MiniBarChart values={byWeekday} labels={dayLabels} money={money} unitLabel="Day" />
+            <MiniBarChart values={byWeekday} labels={DAY_LABELS} money={money} unitLabel="Day" />
           </div>
         </Card>
       </div>

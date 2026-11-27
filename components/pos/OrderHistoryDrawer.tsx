@@ -151,7 +151,10 @@ export function OrderHistoryDrawer({ onClose }: { onClose: () => void }) {
                 <div className="mt-3 flex gap-2">
                   <button
                     type="button"
-                    onClick={() => actions.setReceiptPreview(selected)}
+                    onClick={() => {
+                      actions.setReceiptPreview(selected);
+                      window.setTimeout(() => window.print(), 350);
+                    }}
                     className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 dark:border-[#3E434C] dark:text-slate-200 dark:hover:bg-[#33373E]"
                   >
                     <Printer className="h-3.5 w-3.5" />

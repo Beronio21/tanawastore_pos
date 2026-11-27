@@ -6,7 +6,9 @@
  */
 
 export type MenuItemType = "Product" | "Dish";
-export type PaymentMethod = "Cash" | "Card" | "e-Wallet";
+export type PaymentMethod = "Cash" | "Card" | "e-Wallet" | "GCash" | "Maya" | "QR Ph";
+export type DigitalPaymentMethod = "GCash" | "Maya" | "QR Ph" | "Card";
+export type SyncStatus = "saved" | "saving" | "offline";
 export type FinanceCategoryFlag = "displayOnPos" | "includeInPnl";
 export type ServiceChargeFee = "Don't use" | "5%" | "10%";
 export type LowStockAlert = "Do not notify" | "Daily digest" | "Immediate";
@@ -32,6 +34,10 @@ export type LocationSettings = {
   payrollTracking: boolean;
   lowStockAlert: LowStockAlert;
   logo: string;
+  /** R2 public URL (or local data URL) for the store logo. */
+  logoUrl?: string;
+  /** BIR / business registration TIN printed on receipts. */
+  tin?: string;
 };
 
 export type Employee = {
@@ -179,6 +185,8 @@ export type MenuItem = {
   cost: number;
   price: number;
   recipe: RecipeIngredient[];
+  /** R2 public URL (or local data URL) of the product photo. */
+  imageUrl?: string;
 };
 
 export type PreparationItem = {
@@ -602,6 +610,8 @@ export type ReceiptSettings = {
   printAddress: boolean;
   receiptLanguage: ReceiptLanguage;
   printOnReceipt: PrintOnReceipt;
+  /** Thermal roll width used by the receipt/kitchen print engine. */
+  paperWidth: "58mm" | "80mm";
 };
 
 export type AdminPasswordRule = "Always" | "After a check is printed" | "In cases..." | "Never";
@@ -644,6 +654,8 @@ export type PosOrderTab = {
   promotionId?: string;
 };
 
+export type KdsTicketStatus = "queued" | "preparing" | "ready" | "served";
+
 export type KdsTicket = {
   id: string;
   receiptNum: number;
@@ -651,6 +663,15 @@ export type KdsTicket = {
   station: string;
   time: string;
   items: { name: string; qty: number }[];
+  /** Kitchen workflow state; legacy tickets default to `queued`. */
+  status?: KdsTicketStatus;
+  /** Dine-in / Takeout / Delivery badge. */
+  source?: string;
+  comment?: string;
+  /** Epoch milliseconds when the ticket was created (elapsed timer). */
+  openedAtMs?: number;
+  startedAt?: string;
+  completedAt?: string;
 };
 
 export type OnboardingProgress = {
@@ -742,6 +763,8 @@ export type ConsoleState = {
   syncing: boolean;
   lastSyncedAt: string;
   syncedMutationIds: string[];
+  /** Management Console persistence pill: Saved / Saving… / Offline. */
+  syncStatus: SyncStatus;
 
   plan: "starter" | "pro" | "enterprise";
   onboardingCompleted: boolean;
@@ -955,6 +978,8 @@ const INITIAL_SETTINGS: LocationSettings = {
   payrollTracking: false,
   lowStockAlert: "Do not notify",
   logo: "",
+  logoUrl: "",
+  tin: "",
 };
 
 const INITIAL_EMPLOYEES: Employee[] = [
@@ -1203,6 +1228,9 @@ const INITIAL_ORDER_SOURCES: OrderSource[] = [
 const INITIAL_PAYMENT_METHODS: PaymentMethodConfig[] = [
   { id: "pm-cash", title: "Cash", paymentType: "Cash", icon: "cash", serviceFeePct: 0, displayedOnPos: true, systemLocked: true },
   { id: "pm-card", title: "Card", paymentType: "Cashless", icon: "card", serviceFeePct: 0, displayedOnPos: true },
+  { id: "pm-gcash", title: "GCash", paymentType: "Cashless", icon: "wallet", serviceFeePct: 0, displayedOnPos: true },
+  { id: "pm-maya", title: "Maya", paymentType: "Cashless", icon: "wallet", serviceFeePct: 0, displayedOnPos: true },
+  { id: "pm-qrph", title: "QR Ph", paymentType: "Cashless", icon: "wallet", serviceFeePct: 0, displayedOnPos: true },
   { id: "pm-gift", title: "Gift card", paymentType: "Other", icon: "gift", serviceFeePct: null, displayedOnPos: true, hasMenu: true },
   { id: "pm-ewallet", title: "e-Wallet", paymentType: "Other", icon: "wallet", serviceFeePct: 0, displayedOnPos: true, canEdit: false, hasMenu: true },
   { id: "pm-ubereats", title: "Uber Eats", paymentType: "Cashless", icon: "muted", serviceFeePct: 0, displayedOnPos: false, muted: true, hasMenu: true },
@@ -1274,6 +1302,7 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
   syncing: false,
   lastSyncedAt: "",
   syncedMutationIds: [],
+  syncStatus: "saved",
 
   plan: "pro",
   onboardingCompleted: true,
@@ -1461,6 +1490,7 @@ export const INITIAL_CONSOLE_STATE: ConsoleState = {
     printAddress: false,
     receiptLanguage: "Account language",
     printOnReceipt: "Company name",
+    paperWidth: "80mm",
   },
 };
 

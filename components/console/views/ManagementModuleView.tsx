@@ -6,8 +6,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney, formatMoneyPrefix, formatQty } from "@/lib/format";
+import { datedFilename, exportToCsv } from "@/lib/export-utils";
 import { planForState, planLimit, withinPlanLimit } from "@/lib/billing-plans";
 import { PlanLimitDialog } from "../PlanLimitDialog";
+import { ImageUploadButton } from "../ImageUploadButton";
 import { accountDisplayName, type AccessLevel, type ConsoleAccessArea, type Customer, type CustomerGroup, type Employee, type LoyaltySettings, type LoyaltyTransitionCondition, type PositionRole, type Promotion, type PromotionRewardType, type PromotionScope, type Register, type UserSession } from "@/lib/console-data";
 import { Card, EmptyState, FilterToolbar, PageHeader, ROW, TD, TH, Toggle } from "../ui";
 
@@ -76,9 +78,11 @@ export function ManagementModuleView({ section, slug, supplierId, storageLocatio
           <FilterToolbar search={search} onSearchChange={setSearch} pills={[{ label: "Category ▾" }, { label: "Station ▾" }]} />
           <Card className="overflow-x-auto">
             <table className="w-full border-collapse text-left text-xs">
-              <thead><tr><th className={TH}>Name</th><th className={TH}>Category</th><th className={TH}>Station</th><th className={`${TH} text-right`}>Cost</th><th className={`${TH} text-right`}>Price</th><th className={TH}>Actions</th></tr></thead>
+              <thead><tr><th className={TH}>Name</th><th className={TH}>Photo</th><th className={TH}>Category</th><th className={TH}>Station</th><th className={`${TH} text-right`}>Cost</th><th className={`${TH} text-right`}>Price</th><th className={TH}>Actions</th></tr></thead>
               <tbody>{filtered.map((item) => <tr key={item.id} className={ROW}>
-                <td className={`${TD} font-semibold`}>{item.emoji} {item.title}</td><td className={TD}>{item.category}</td><td className={TD}>{item.station}</td>
+                <td className={`${TD} font-semibold`}>{item.emoji} {item.title}</td>
+                <td className={TD}><ImageUploadButton compact folder="products" currentUrl={item.imageUrl} onUploaded={(url) => actions.setMenuItemImage(item.id, url)} onRemove={() => actions.setMenuItemImage(item.id, "")} /></td>
+                <td className={TD}>{item.category}</td><td className={TD}>{item.station}</td>
                 <td className={`${TD} text-right font-mono`}>{money(item.cost)}</td><td className={`${TD} text-right font-mono font-bold`}>{money(item.price)}</td>
                 <td className={TD}><button type="button" className="text-rose-500 hover:underline" onClick={() => actions.deleteMenuItem(item.id)}>Delete</button></td>
               </tr>)}</tbody>
@@ -1718,7 +1722,15 @@ function StockView() {
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-9 z-20 w-40 rounded-lg border border-[#E5E8EC] bg-white p-1 text-xs shadow-xl dark:border-[#33373E] dark:bg-[#2C3036]">
-              <button type="button" onClick={() => { actions.showToast("Stock exported to CSV", "success"); setMenuOpen(false); }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">Export CSV</button>
+              <button type="button" onClick={() => {
+                exportToCsv(
+                  datedFilename("tanawa-stock-valuation"),
+                  ["Title", "Quantity", "Unit", "Avg Cost", "Total Value"],
+                  items.map((item) => [item.title, item.stock.toFixed(4), item.unit, item.cost.toFixed(4), (item.stock * item.cost).toFixed(2)]),
+                );
+                actions.showToast(`Exported ${items.length} stock rows to CSV`, "success");
+                setMenuOpen(false);
+              }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">Export CSV</button>
               <button type="button" onClick={() => { window.print(); setMenuOpen(false); }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">Print</button>
               <button type="button" onClick={() => { actions.openModal("add-supply"); setMenuOpen(false); }} className="block w-full rounded px-3 py-2 text-left text-[#1DB954] hover:bg-slate-100 dark:hover:bg-white/5">Add Supply</button>
             </div>
@@ -2324,7 +2336,15 @@ function IngredientsMovementsView() {
           <button type="button" aria-label="Movement actions" onClick={() => setMenuOpen((open) => !open)} className="rounded-md px-2 py-1.5 text-xl leading-none text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5">⋮</button>
           {menuOpen && (
             <div className="absolute right-0 top-9 z-20 w-44 rounded-lg border border-[#E5E8EC] bg-white p-1 text-xs shadow-xl dark:border-[#33373E] dark:bg-[#2C3036]">
-              <button type="button" onClick={() => { actions.showToast("Ingredients movements exported to CSV", "success"); setMenuOpen(false); }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">CSV Export</button>
+              <button type="button" onClick={() => {
+                exportToCsv(
+                  datedFilename("tanawa-ingredients-movements"),
+                  ["Title", "Quantity", "Unit", "Avg Cost", "Total Value"],
+                  items.map((item) => [item.title, item.stock.toFixed(4), item.unit, item.cost.toFixed(4), (item.stock * item.cost).toFixed(2)]),
+                );
+                actions.showToast("Ingredients movements exported to CSV", "success");
+                setMenuOpen(false);
+              }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">CSV Export</button>
               <button type="button" onClick={() => { window.print(); setMenuOpen(false); }} className="block w-full rounded px-3 py-2 text-left hover:bg-slate-100 dark:hover:bg-white/5">Print</button>
             </div>
           )}

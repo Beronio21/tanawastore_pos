@@ -5,6 +5,8 @@ import { Calendar, ChevronDown, ChevronUp, Columns3, Printer, Search, Upload, X 
 import { usePosStore } from "@/lib/pos-store";
 import { summarizeReceiptRows } from "@/lib/business-math";
 import { formatMoney } from "@/lib/format";
+import { datedFilename, exportToCsv } from "@/lib/export-utils";
+import { splitVat } from "@/lib/vat";
 import { seedReceiptReportRows, type ReceiptReportRow } from "@/lib/console-data";
 import { Card, PageHeader, TD, TH } from "../ui";
 
@@ -191,7 +193,30 @@ export function ReceiptsReportView() {
               <button
                 type="button"
                 className={ACTION}
-                onClick={() => actions.showToast("Exported Receipts report to CSV", "success")}
+                onClick={() => {
+                  exportToCsv(
+                    datedFilename("tanawa-receipts-report"),
+                    ["Receipt #", "Opened", "Closed", "Waiter", "Customer", "VATable Sales", "12% VAT", "Discounts", "Total", "Profit", "Status"],
+                    filtered.map((row) => {
+                      const receipt = state.receipts.find((entry) => entry.receiptNum === row.number);
+                      const vat = splitVat(row.paid, state.settings.vatRate);
+                      return [
+                        row.number,
+                        row.openedAt,
+                        row.closedAt,
+                        row.waiter,
+                        receipt?.customerName ?? "",
+                        vat.vatableSales.toFixed(2),
+                        vat.vatAmount.toFixed(2),
+                        row.discount.toFixed(2),
+                        row.paid.toFixed(2),
+                        row.profit.toFixed(2),
+                        row.status,
+                      ];
+                    }),
+                  );
+                  actions.showToast(`Exported ${filtered.length} receipts to CSV`, "success");
+                }}
               >
                 <Upload className="h-3.5 w-3.5" />
                 <span>Export ▾</span>
@@ -518,7 +543,15 @@ export function ReceiptsReportView() {
             <div className="flex items-center justify-end gap-2 border-t border-[#E5E8EC] px-5 py-3.5 dark:border-[#33373E]">
               <button
                 type="button"
-                onClick={() => actions.showToast(`Receipt #${detail.number} sent to printer`, "success")}
+                onClick={() => {
+                  const receipt = state.receipts.find((entry) => entry.receiptNum === detail.number);
+                  if (!receipt) {
+                    actions.showToast("Only closed receipts can be reprinted.", "info");
+                    return;
+                  }
+                  actions.setReceiptPreview(receipt);
+                  window.setTimeout(() => window.print(), 350);
+                }}
                 className="flex cursor-pointer items-center gap-1.5 rounded-md border border-[#D1D5DB] px-3 py-1.5 text-xs font-semibold hover:bg-slate-50 dark:border-[#3E434C] dark:hover:bg-white/5"
               >
                 <Printer className="h-3.5 w-3.5" />

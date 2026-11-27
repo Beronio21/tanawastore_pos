@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import type { AttachedCard, BillingDetails } from "@/lib/console-data";
+import { BILLING_PLANS, type PlanId } from "@/lib/billing-plans";
 import { Card, TH, TD, ROW } from "../ui";
 
 export type BillingTab = "overview" | "subscriptions" | "invoices" | "settings";
@@ -177,15 +178,18 @@ export function BillingView({ initialTab = "overview" }: { initialTab?: BillingT
       )}
 
       {tab === "subscriptions" && (
-        <Card className="mt-4 max-w-2xl p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold">Active</h2>
-            <ManageMenu open={manageOpen} onToggle={() => setManageOpen((current) => !current)} onClose={() => setManageOpen(false)} />
-          </div>
-          <div className="mt-4">
-            <PlanSummary />
-          </div>
-        </Card>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,28rem)_minmax(0,1fr)]">
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold">Active</h2>
+              <ManageMenu open={manageOpen} onToggle={() => setManageOpen((current) => !current)} onClose={() => setManageOpen(false)} />
+            </div>
+            <div className="mt-4">
+              <PlanSummary />
+            </div>
+          </Card>
+          <PlanCards />
+        </div>
       )}
 
       {tab === "invoices" && (
@@ -227,6 +231,93 @@ export function BillingView({ initialTab = "overview" }: { initialTab?: BillingT
       )}
       {cardModalOpen && <AttachCardModal onClose={() => setCardModalOpen(false)} />}
     </div>
+  );
+}
+
+/** Starter / Pro / Enterprise cards wired to PayMongo checkout or sandbox confirmation. */
+function PlanCards() {
+  const { state, actions } = usePosStore();
+  const [busy, setBusy] = useState<PlanId | null>(null);
+  const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+
+  const subscribe = async (plan: PlanId) => {
+    setBusy(plan);
+    setError("");
+    setNote("");
+    try {
+      const confirmation = await fetch("/api/v1/payments/paymongo/confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ plan }),
+      });
+      if (confirmation.ok) {
+        const payload = (await confirmation.json()) as { invoiceNumber?: string };
+        actions.setPlan(plan, payload.invoiceNumber);
+        return;
+      }
+
+      // Live PayMongo: open the hosted checkout for the plan amount.
+      if (confirmation.status === 409) {
+        const intent = await fetch("/api/v1/payments/paymongo/intent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ amount: BILLING_PLANS[plan].price, method: "Card", description: `TanAwa ${BILLING_PLANS[plan].name} plan`, reference: state.settings.subdomain }),
+        });
+        const payload = (await intent.json()) as { checkoutUrl?: string | null; error?: string };
+        if (!intent.ok) throw new Error(payload.error ?? "PayMongo checkout failed");
+        if (payload.checkoutUrl) {
+          window.open(payload.checkoutUrl, "_blank", "noopener");
+          setNote("Complete the PayMongo checkout — the plan activates when the webhook confirms payment.");
+        } else {
+          setNote("PayMongo checkout created. Complete the payment to activate the plan.");
+        }
+        return;
+      }
+
+      const payload = (await confirmation.json()) as { error?: string };
+      throw new Error(payload.error ?? "Unable to change plan");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to change plan");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <h2 className="text-sm font-bold">Plans</h2>
+      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">PayMongo checkout in PHP. Sandbox mode activates instantly.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        {Object.values(BILLING_PLANS).map((plan) => {
+          const active = state.plan === plan.id;
+          return (
+            <div key={plan.id} className={`flex flex-col justify-between rounded-xl border p-4 ${active ? "border-2 border-[#1DB954] bg-emerald-50/30 dark:bg-emerald-950/20" : "border-[#E5E8EC] dark:border-[#33373E]"}`}>
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold">{plan.name}</span>
+                  {active && <span className="rounded-full bg-[#1DB954] px-2 py-0.5 text-[9px] font-bold text-white">ACTIVE</span>}
+                </div>
+                <div className="mt-1 font-mono text-lg font-extrabold text-[#1A73E8] dark:text-[#7EB3F5]">
+                  {php(plan.price)}<span className="text-[10px] font-normal text-slate-400">/mo</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">{plan.description}</p>
+              </div>
+              <button
+                type="button"
+                disabled={busy !== null || active}
+                onClick={() => void subscribe(plan.id)}
+                className="mt-3 w-full rounded-lg bg-[#0077FF] py-2 text-xs font-bold text-white hover:bg-[#0067DF] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {active ? "Current plan" : busy === plan.id ? "Starting…" : `Subscribe · ${php(plan.price)}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {note && <p className="mt-3 text-[11px] text-[#1A73E8] dark:text-[#7EB3F5]">{note}</p>}
+      {error && <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-[11px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{error}</p>}
+    </Card>
   );
 }
 

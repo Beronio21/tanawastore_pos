@@ -18,6 +18,8 @@ type PageActions = {
   addLabel?: string;
   addOnClick?: () => void;
   addClass?: string;
+  onExport?: () => void;
+  onPrint?: () => void;
   extra?: ReactNode;
 };
 
@@ -59,14 +61,17 @@ export function PageHeader({
           <button
             type="button"
             className={GHOST}
-            onClick={() => storeActions.showToast(`Exported ${title} report to CSV`, "success")}
+            onClick={() => {
+              if (actions.onExport) actions.onExport();
+              else storeActions.showToast(`Exported ${title} report to CSV`, "success");
+            }}
           >
             <Upload className="h-3.5 w-3.5" />
             <span>Export</span>
           </button>
         )}
         {actions.print && (
-          <button type="button" className={GHOST} onClick={() => window.print()}>
+          <button type="button" className={GHOST} onClick={() => (actions.onPrint ? actions.onPrint() : window.print())}>
             <Printer className="h-3.5 w-3.5" />
             <span>Print</span>
           </button>

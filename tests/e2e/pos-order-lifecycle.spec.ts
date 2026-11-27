@@ -60,7 +60,7 @@ test("POS order lifecycle: lock, PIN unlock, customers, kitchen, payment and rec
   // Pay the check in cash.
   await page.getByRole("button", { name: /^Pay / }).click();
   await expect(page.getByLabel("Amount tendered")).toBeVisible();
-  await page.getByRole("button", { name: "Cash" }).click();
+  await page.getByRole("button", { name: "Cash", exact: true }).click();
   await expect(page.getByText("Powered by Poster POS")).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
 

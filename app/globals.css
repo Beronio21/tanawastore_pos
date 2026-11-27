@@ -94,20 +94,48 @@ body {
   background-image: radial-gradient(circle at 8px 8px, transparent 6px, #ffffff 6.5px);
 }
 
+/*
+ * Thermal receipt printing (58 mm / 80 mm) is scoped with :has() so the
+ * Reports “Print” buttons still print the page when no receipt is open.
+ */
 @media print {
-  body * {
+  body:has(#printable-receipt-area) * {
     visibility: hidden;
   }
-  #printable-receipt-area,
-  #printable-receipt-area * {
+  body:has(#printable-receipt-area) #printable-receipt-area,
+  body:has(#printable-receipt-area) #printable-receipt-area * {
     visibility: visible;
   }
-  #printable-receipt-area {
+  body:has(#printable-receipt-area) #printable-receipt-area {
     position: fixed;
-    left: 50%;
+    left: 0;
     top: 0;
-    transform: translateX(-50%);
-    width: 320px;
+    transform: none;
+    width: max-content;
     box-shadow: none !important;
   }
+
+  /* Clean report printing without the console chrome. */
+  body:not(:has(#printable-receipt-area)) aside {
+    display: none !important;
+  }
+
+  @page {
+    margin: 4mm;
+  }
+}
+
+/* Paper widths: the selector lives outside the print query so the preview
+ * matches the roll width on screen too. */
+[data-paper-width="58mm"] {
+  width: 58mm;
+}
+[data-paper-width="80mm"] {
+  width: 80mm;
+}
+.receipt-58 {
+  font-size: 9px;
+}
+.receipt-80 {
+  font-size: 11px;
 }

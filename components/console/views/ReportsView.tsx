@@ -28,7 +28,10 @@ export function ReportsView({ slug }: { slug: string }) {
   const q = search.trim().toLowerCase();
 
   useEffect(() => {
-    actions.markReportsViewed();
+    // Deferred so the onboarding flag update (full-store clone + re-render)
+    // does not block the initial paint of the report.
+    const timer = window.setTimeout(() => actions.markReportsViewed(), 0);
+    return () => window.clearTimeout(timer);
   }, [actions]);
 
   const dateActions = { dateRange: DATE, export: true, print: true };

@@ -9,6 +9,7 @@ import { TopTrialBanner } from "./TopTrialBanner";
 import { Sidebar } from "./Sidebar";
 import { SupportWidget } from "./SupportWidget";
 import { ConsoleModals } from "./Modals";
+import { SyncStatusPill } from "./SyncStatusPill";
 import { pageTitleForPath } from "./nav";
 
 /** Poster management console shell: banner, sidebar, mobile header, content. */
@@ -27,6 +28,9 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
             <MobileHeader onOpen={() => setMobileOpen(true)} />
           </Suspense>
 
+          <div className="mx-auto flex w-full max-w-[1520px] justify-end px-4 pt-1.5 sm:px-6 lg:px-8">
+            <SyncStatusPill />
+          </div>
           <div className="mx-auto w-full max-w-[1520px] flex-1 p-4 sm:p-6 lg:px-8 lg:py-5">
             <Suspense fallback={<div className="h-64 animate-pulse rounded-xl bg-slate-100 dark:bg-[#2C3036]" />}>
               {children}

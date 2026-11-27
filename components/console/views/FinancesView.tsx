@@ -5,6 +5,7 @@ import { useState } from "react";
 import { usePosStore } from "@/lib/pos-store";
 import { calculatePayroll } from "@/lib/business-math";
 import { formatMoney } from "@/lib/format";
+import { datedFilename, exportToCsv } from "@/lib/export-utils";
 import { accountDisplayName, type FinanceCategoryFlag } from "@/lib/console-data";
 import { Card, EmptyState, FilterToolbar, PageHeader, ROW, TD, TH, Toggle } from "../ui";
 
@@ -42,6 +43,14 @@ export function FinancesView({ slug }: { slug: string }) {
             export: true,
             print: true,
             dateRange: "Full calendar ▾",
+            onExport: () => {
+              exportToCsv(
+                datedFilename("tanawa-finance-transactions"),
+                ["Date", "Type", "Category", "Comment", "Sum", "Account"],
+                transactions.map((tx) => [tx.date, tx.type, tx.category, tx.comment, tx.sum.toFixed(2), tx.account]),
+              );
+              actions.showToast(`Exported ${transactions.length} transactions to CSV`, "success");
+            },
             aiImport: true,
             addLabel: "Add",
             addOnClick: () => actions.openModal("add-tx"),
@@ -592,7 +601,31 @@ export function FinancesView({ slug }: { slug: string }) {
 
     return (
       <div className="space-y-4">
-        <PageHeader title="Profit and Loss" count="Connected" actions={{ columns: true, export: true, dateRange: "Nov 17 — Nov 23" }} />
+        <PageHeader
+          title="Profit and Loss"
+          count="Connected"
+          actions={{
+            columns: true,
+            export: true,
+            dateRange: "Nov 17 — Nov 23",
+            onExport: () => {
+              exportToCsv(
+                datedFilename("tanawa-profit-and-loss"),
+                ["Metric", "Amount"],
+                [
+                  ["Revenue (POS Sales)", revenue.toFixed(2)],
+                  ["Cost of products and dishes sold", cogs.toFixed(2)],
+                  ["Stock deductions", stockDeductions.toFixed(2)],
+                  ["Gross Margin", margin.toFixed(2)],
+                  ["Operating Expenses (Included in P&L)", expenses.toFixed(2)],
+                  ["VAT Collected", vat.toFixed(2)],
+                  ["Profit after taxation", net.toFixed(2)],
+                ],
+              );
+              actions.showToast("Exported Profit & Loss to CSV", "success");
+            },
+          }}
+        />
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#E5E8EC] px-4 py-2.5 text-xs dark:border-[#33373E]">
           <span>
             Showing live Profit &amp; Loss calculated from <strong>{company}</strong> POS receipts, recipe food

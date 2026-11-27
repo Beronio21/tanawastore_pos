@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Check,
   Lock,
@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 import { usePosStore } from "@/lib/pos-store";
 import { formatMoney, formatQty } from "@/lib/format";
+import { ThermalReceiptPrint } from "@/components/pos/ThermalReceiptPrint";
 import { accountDisplayName, type ButcheryLineItem, type InventoryCheckLine, type StockDeductionLine, type SupplyLineItem, type TransferLineItem } from "@/lib/console-data";
+import { ImageUploadButton } from "./ImageUploadButton";
 
 const INPUT =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-[#1A73E8] focus:outline-none dark:border-[#3E434C] dark:bg-[#1D2024] dark:text-white";
@@ -130,6 +132,7 @@ export function AddMenuItemModal() {
   const [station, setStation] = useState(state.stations[0]?.title ?? "Bar");
   const [cost, setCost] = useState("18.00");
   const [price, setPrice] = useState("110.00");
+  const [imageUrl, setImageUrl] = useState("");
   const [recipeChoice, setRecipeChoice] = useState("");
 
   function submit(event: React.FormEvent) {
@@ -156,6 +159,7 @@ export function AddMenuItemModal() {
       cost: Number(cost) || 0,
       price: Number(price) || 0,
       emoji: recipeChoice === "coffee" ? "☕" : recipeChoice === "flour" ? "🥐" : "🍽️",
+      imageUrl: imageUrl || undefined,
       recipe,
     });
     actions.closeModal();
@@ -205,6 +209,10 @@ export function AddMenuItemModal() {
               <label className={LABEL}>Price (₱) *</label>
               <input type="number" step="0.01" min="0.01" required value={price} onChange={(event) => setPrice(event.target.value)} className={`${INPUT} font-mono`} />
             </div>
+          </div>
+          <div>
+            <label className={LABEL}>Photo</label>
+            <ImageUploadButton folder="products" currentUrl={imageUrl} onUploaded={setImageUrl} onRemove={() => setImageUrl("")} label="Upload photo" />
           </div>
           <div>
             <label className={LABEL}>Recipe Ingredient Deduction</label>
@@ -1192,88 +1200,14 @@ export function PinLockModal() {
 export function ThermalReceiptModal() {
   const { state, actions } = usePosStore();
   const receipt = state.receiptPreview;
-  const symbol = state.settings.currencySymbol;
-  const money = useMemo(() => (value: number) => formatMoney(value, symbol), [symbol]);
-  const [prediction] = useState(() => {
-    const predictions = state.receiptSettings?.predictions?.filter((entry) => entry.trim()) ?? [];
-    return predictions.length ? predictions[Math.floor(Math.random() * predictions.length)] : "";
-  });
 
   if (!receipt) return null;
-
-  const receiptSettings = state.receiptSettings;
-  const headerName = receiptSettings?.printOnReceipt === "Business name"
-    ? (state.locations[0]?.name ?? state.settings.companyName)
-    : state.settings.companyName;
-  const activePredictions = receiptSettings?.printPredictions ? prediction : "";
 
   return (
     <Overlay onClose={() => actions.setReceiptPreview(null)}>
       <div className="w-full max-w-sm space-y-4">
-        <div id="printable-receipt-area" className="thermal-receipt space-y-3 p-6 font-mono text-xs">
-          <div className="space-y-1 border-b border-dashed border-slate-300 pb-3 text-center">
-            {state.settings.logo && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={state.settings.logo} alt="" className="mx-auto mb-1 h-10 w-auto max-w-[160px] object-contain" />
-            )}
-            <div className="text-sm font-extrabold uppercase">{headerName}</div>
-            {receiptSettings?.printAddress !== false && (
-              <div className="text-[11px] text-slate-500">{state.settings.address}</div>
-            )}
-            <div className="text-[11px] text-slate-500">
-              {receiptSettings?.printReceiptNumber !== false && `Receipt #${receipt.receiptNum} • `}{receipt.closedAt}
-            </div>
-            <div className="text-[11px] text-slate-500">Waiter: {receipt.staffName}</div>
-            <div className="text-[11px] text-slate-500">{receipt.tableName} • {receipt.paymentMethod}</div>
-            {receiptSettings?.printCustomerContact && receipt.customerName && (
-              <div className="text-[11px] text-slate-500">
-                {receipt.customerName}
-                {receipt.customerPhone ? ` • ${receipt.customerPhone}` : ""}
-                {receipt.customerAddress ? ` • ${receipt.customerAddress}` : ""}
-              </div>
-            )}
-            {receiptSettings?.printComments && receipt.comment && (
-              <div className="text-[11px] italic text-slate-500">Comment: {receipt.comment}</div>
-            )}
-          </div>
-          <div className="space-y-1.5 border-b border-dashed border-slate-300 pb-3">
-            {receipt.items.map((item, index) => (
-              <div key={`${item.menuId}-${index}`} className="flex justify-between">
-                <span>{item.qty}x {item.name}</span>
-                <span className="font-bold">{money(item.qty * item.unitPrice)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1 text-[11px]">
-            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{money(receipt.subtotal)}</span></div>
-            {receipt.discountAmt > 0 && (
-              <div className="flex justify-between text-emerald-600"><span>Discount</span><span>-{money(receipt.discountAmt)}</span></div>
-            )}
-            {(receipt.serviceCharge ?? 0) > 0 && (
-              <div className="flex justify-between text-slate-500"><span>Service charge</span><span>{money(receipt.serviceCharge ?? 0)}</span></div>
-            )}
-            {(receipt.deliveryFee ?? 0) > 0 && (
-              <div className="flex justify-between text-slate-500"><span>Delivery{receipt.deliveryArea ? ` · ${receipt.deliveryArea}` : ""}</span><span>{money(receipt.deliveryFee ?? 0)}</span></div>
-            )}
-            <div className="flex justify-between text-slate-500"><span>VAT (12%)</span><span>{money(receipt.tax)}</span></div>
-            <div className="flex justify-between pt-1 text-sm font-extrabold"><span>TOTAL</span><span>{money(receipt.total)}</span></div>
-            <div className="flex justify-between text-slate-500"><span>Payment</span><span>{receipt.paymentMethod}</span></div>
-            {receipt.paymentMethod === "Cash" && receipt.tendered !== undefined && (
-              <>
-                <div className="flex justify-between text-slate-500"><span>Tendered</span><span>{money(receipt.tendered)}</span></div>
-                <div className="flex justify-between text-slate-500"><span>Change</span><span>{money(receipt.change ?? 0)}</span></div>
-              </>
-            )}
-          </div>
-          {receiptSettings?.printWifi && receiptSettings.wifiName && (
-            <div className="border-t border-dashed border-slate-300 pt-2 text-center text-[11px] text-slate-500">
-              Wi-Fi: {receiptSettings.wifiName}{receiptSettings.wifiPassword ? ` / ${receiptSettings.wifiPassword}` : ""}
-            </div>
-          )}
-          {activePredictions && (
-            <div className="border-t border-dashed border-slate-300 pt-2 text-center text-[11px] italic text-slate-500">{activePredictions}</div>
-          )}
-          <div className="pt-2 text-center text-[10px] text-slate-400">Powered by Poster POS</div>
+        <div id="printable-receipt-area" className="p-1">
+          <ThermalReceiptPrint receipt={receipt} />
         </div>
         <div className="flex gap-2">
           <button

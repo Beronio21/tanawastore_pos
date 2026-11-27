@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/db";
+import type { TenantPlan } from "@/db/schema";
 import { REGISTER_COOKIE, cookieFromRequest, getRequestTenantContext } from "@/lib/tenant";
 
 type StateSyncBody = {
@@ -8,6 +10,8 @@ type StateSyncBody = {
   security?: Record<string, unknown>;
   receipt?: Record<string, unknown>;
   loyalty?: Record<string, unknown>;
+  plan?: TenantPlan;
+  onboardingCompleted?: boolean;
 };
 
 /** Persist console mutations scoped to the resolved tenant. */
@@ -52,6 +56,15 @@ export async function POST(request: Request) {
       updatedAt: new Date(),
     },
   });
+
+  if (body.plan || body.onboardingCompleted !== undefined) {
+    await db.update(schema.tenants)
+      .set({
+        ...(body.plan ? { plan: body.plan } : {}),
+        ...(body.onboardingCompleted !== undefined ? { onboardingCompleted: body.onboardingCompleted } : {}),
+      })
+      .where(eq(schema.tenants.id, tenant.tenantId));
+  }
 
   return NextResponse.json({ ok: true, mode: "postgres", tenantId: tenant.tenantId });
 }

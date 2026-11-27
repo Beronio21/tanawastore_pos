@@ -59,6 +59,8 @@ import {
 import type { OnboardingPreset } from "./onboarding-presets";
 import { tenantStorageKeys } from "./tenant-keys";
 import { createMutationId, enqueueMutation, flushQueue, readQueue } from "./offline-sync";
+import { fetchBootstrap } from "./bootstrap";
+import { KITCHEN_CHANNEL, nextTicketStatus, normalizeTicket, ticketSource } from "./kitchen";
 import {
   customerGroupDiscountRate,
   inventoryDiscrepancy,
@@ -90,6 +92,7 @@ type NewMenuItem = {
   cost: number;
   price: number;
   emoji?: string;
+  imageUrl?: string;
   recipe?: { stockId?: string; prepId?: string; qty: number }[];
 };
 
@@ -212,6 +215,10 @@ type Actions = {
   refundReceipt: (receiptNum: number) => void;
   sendOrderToKitchen: (tabId: string) => void;
   bumpKdsTicket: (ticketId: string) => void;
+  setKdsTickets: (tickets: KdsTicket[]) => void;
+  refreshKitchenTickets: () => Promise<void>;
+  setMenuItemImage: (id: string, imageUrl: string) => void;
+  setPlan: (plan: ConsoleState["plan"], invoiceNumber?: string) => void;
   setPosPayMethod: (method: PaymentMethod) => void;
   completePosSale: (tabId: string, method: PaymentMethod, amountTendered: number, cashBackRedeemed?: number) => Receipt | null;
 
@@ -384,14 +391,16 @@ export function PosStoreProvider({
       const restored = merged ?? structuredClone(INITIAL_CONSOLE_STATE);
       setState(restored);
       stateRef.current = restored;
-      // Only persist after the restore so the seed cannot clobber saved state.
-      setHydrated(true);
-      setHydratedTenant(tenantId);
+      // Persist the restored snapshot immediately: tests and a fast reload must
+      // never observe an empty tenant namespace between hydration and the
+      // persist effect.
       try {
         window.localStorage.setItem(storageKey, JSON.stringify(persistable(restored)));
       } catch {
-        // Storage can be unavailable in private mode.
+        // Quota/private mode.
       }
+      setHydrated(true);
+      setHydratedTenant(tenantId);
     });
     return () => {
       cancelled = true;
@@ -402,6 +411,117 @@ export function PosStoreProvider({
   useEffect(() => {
     if (hydrated) document.documentElement.dataset.storeHydrated = "true";
   }, [hydrated]);
+
+  // Hydrate live PostgreSQL tenants from /api/v1/bootstrap. Local/CI mode and
+  // unreachable servers keep the tenant-namespaced localStorage snapshot.
+  const remoteRef = useRef(false);
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetchBootstrap(tenantId, window.localStorage)
+        .then((remote) => {
+          if (!remote || cancelled) return;
+          remoteRef.current = true;
+          setState(remote);
+          stateRef.current = remote;
+        })
+        .catch(() => {
+          // Offline / unauthenticated: stay on the local snapshot.
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [hydrated, tenantId]);
+
+  // Keep kitchen screens in sync across tabs, even without a database.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `tanawa_kitchen_tickets_${tenantId}`;
+    const channel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(KITCHEN_CHANNEL) : null;
+    const apply = (tickets: KdsTicket[] | undefined) => {
+      if (!Array.isArray(tickets)) return;
+      setState((prev) => ({ ...prev, kdsTickets: tickets }));
+    };
+    if (channel) channel.onmessage = (event: MessageEvent) => apply(event.data?.tickets);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== storageKey || !event.newValue) return;
+      try {
+        apply(JSON.parse(event.newValue) as KdsTicket[]);
+      } catch {
+        // Ignore malformed cross-tab payloads.
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      channel?.close();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [tenantId]);
+
+  // Debounced console mutations → PostgreSQL (Settings, plan, onboarding).
+  useEffect(() => {
+    if (!hydrated || !remoteRef.current) return;
+    const timer = window.setTimeout(() => {
+      setState((prev) => ({ ...prev, syncStatus: navigator.onLine ? "saving" : "offline" }));
+      void fetch("/api/v1/state/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          general: {
+            companyName: state.settings.companyName,
+            currencySymbol: state.settings.currencySymbol,
+            timezone: state.settings.timezone,
+            logoUrl: state.settings.logoUrl ?? state.settings.logo,
+            tin: state.settings.tin ?? "",
+          },
+          receipt: state.receiptSettings,
+          delivery: state.deliverySettings,
+          security: state.securitySettings,
+          loyalty: state.loyaltySettings,
+          plan: state.plan,
+          onboardingCompleted: state.onboardingCompleted,
+        }),
+      })
+        .then((response) => {
+          const status = response.ok && navigator.onLine ? "saved" : "offline";
+          setState((prev) => ({
+            ...prev,
+            syncStatus: status,
+            ...(status === "saved" ? { lastSyncedAt: new Date().toISOString() } : {}),
+          }));
+        })
+        .catch(() => {
+          setState((prev) => ({ ...prev, syncStatus: "offline" }));
+        });
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    hydrated,
+    tenantId,
+    state.settings,
+    state.receiptSettings,
+    state.deliverySettings,
+    state.securitySettings,
+    state.loyaltySettings,
+    state.plan,
+    state.onboardingCompleted,
+  ]);
+
+  // Network changes flip the header pill between Saved and Offline.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOffline = () => setState((prev) => ({ ...prev, isOnline: false, syncStatus: "offline" }));
+    const onOnline = () => setState((prev) => ({ ...prev, isOnline: true, syncStatus: remoteRef.current ? "saved" : prev.syncStatus }));
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -551,6 +671,21 @@ export function PosStoreProvider({
           unit: stock.unit,
         });
       });
+    };
+
+    /** Cross-tab Kitchen Kit sync when PostgreSQL is not configured. */
+    const broadcastKitchen = (tickets: KdsTicket[]) => {
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(`tanawa_kitchen_tickets_${tenantId}`, JSON.stringify(tickets));
+      } catch {
+        // Quota/private mode: BroadcastChannel still reaches open tabs.
+      }
+      if (typeof BroadcastChannel !== "undefined") {
+        const channel = new BroadcastChannel(KITCHEN_CHANNEL);
+        channel.postMessage({ type: "tickets", tickets });
+        channel.close();
+      }
     };
 
     const actionsObject: Actions = {
@@ -840,39 +975,89 @@ export function PosStoreProvider({
         }
         const tableName = floorTableName(order.tableId);
         const time = formatTime();
+        const source = ticketSource(order);
+        const comment = order.note?.trim() || undefined;
+        const openedAtMs = Date.now();
+        const itemsByStation = new Map<string, { name: string; qty: number }[]>();
+        unsent.forEach((line) => {
+          const station = stateRef.current.menuItems.find((entry) => entry.id === line.menuId)?.station ?? "Kitchen";
+          const bucket = itemsByStation.get(station) ?? [];
+          bucket.push({ name: line.name, qty: line.qty });
+          itemsByStation.set(station, bucket);
+        });
+        const tickets: KdsTicket[] = [...itemsByStation.entries()].map(([station, items]) =>
+          normalizeTicket({
+            id: uid("kds"),
+            receiptNum: order.receiptNum,
+            tableName,
+            station,
+            source,
+            comment,
+            items,
+            time,
+            status: "queued",
+            openedAtMs,
+          }),
+        );
         update((draft) => {
           const draftOrder = draft.posOrders.find((entry) => entry.id === order.id);
           if (!draftOrder) return;
-          const itemsByStation = new Map<string, { name: string; qty: number }[]>();
-          draftOrder.items
-            .filter((line) => !line.sent)
-            .forEach((line) => {
-              const station = draft.menuItems.find((entry) => entry.id === line.menuId)?.station ?? "Kitchen";
-              const bucket = itemsByStation.get(station) ?? [];
-              bucket.push({ name: line.name, qty: line.qty });
-              itemsByStation.set(station, bucket);
-            });
-          itemsByStation.forEach((items, station) => {
-            const ticket: KdsTicket = {
-              id: uid("kds"),
-              receiptNum: draftOrder.receiptNum,
-              tableName,
-              station,
-              time,
-              items,
-            };
-            draft.kdsTickets.unshift(ticket);
-          });
+          draft.kdsTickets.unshift(...tickets);
           draftOrder.items.forEach((line) => { line.sent = true; });
         });
+        queueMicrotask(() => broadcastKitchen(stateRef.current.kdsTickets));
+        if (typeof fetch === "function") {
+          void fetch("/api/v1/kitchen/orders", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ tickets }),
+          }).catch(() => undefined);
+        }
         showToast(`Sent ${unsent.length} item(s) to Kitchen Kit!`, "success");
       },
 
       bumpKdsTicket: (ticketId) => {
+        const ticket = stateRef.current.kdsTickets.find((entry) => entry.id === ticketId);
+        if (!ticket) return;
+        const status = nextTicketStatus(ticket.status ?? "queued");
         update((draft) => {
-          draft.kdsTickets = draft.kdsTickets.filter((ticket) => ticket.id !== ticketId);
+          if (status === "served") {
+            draft.kdsTickets = draft.kdsTickets.filter((entry) => entry.id !== ticketId);
+            return;
+          }
+          const current = draft.kdsTickets.find((entry) => entry.id === ticketId);
+          if (current) {
+            current.status = status;
+            if (status === "preparing") current.startedAt = new Date().toISOString();
+            if (status === "ready") current.completedAt = new Date().toISOString();
+          }
         });
-        showToast("Kitchen ticket completed!", "success");
+        queueMicrotask(() => broadcastKitchen(stateRef.current.kdsTickets));
+        if (typeof fetch === "function") {
+          void fetch(`/api/v1/kitchen/orders/${encodeURIComponent(ticketId)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status }),
+          }).catch(() => undefined);
+        }
+        showToast(status === "served" ? "Kitchen ticket completed!" : `Ticket marked ${status}.`, "success");
+      },
+
+      setKdsTickets: (tickets) => {
+        update((draft) => { draft.kdsTickets = tickets; });
+      },
+
+      refreshKitchenTickets: async () => {
+        if (typeof fetch !== "function") return;
+        try {
+          const response = await fetch("/api/v1/kitchen/orders", { headers: { accept: "application/json" } });
+          if (!response.ok) return;
+          const payload = (await response.json()) as { mode?: string; tickets?: KdsTicket[] };
+          if (payload.mode !== "postgres" || !Array.isArray(payload.tickets)) return;
+          update((draft) => { draft.kdsTickets = payload.tickets as KdsTicket[]; });
+        } catch {
+          // Offline: the BroadcastChannel/local snapshot keeps the board alive.
+        }
       },
 
       setPosPayMethod: (method) => update((draft) => { draft.posPayMethod = method; }),
@@ -1092,6 +1277,7 @@ export function PosStoreProvider({
             cost: input.cost,
             price: input.price,
             emoji: input.emoji ?? "🍽️",
+            imageUrl: input.imageUrl,
             recipe: input.recipe ?? [],
           };
           draft.menuItems.push(menuItem);
@@ -1111,6 +1297,32 @@ export function PosStoreProvider({
       deleteMenuItem: (id) => {
         update((draft) => { draft.menuItems = draft.menuItems.filter((item) => item.id !== id); });
         showToast("Item removed from menu.", "info");
+      },
+
+      setMenuItemImage: (id, imageUrl) => {
+        update((draft) => {
+          const item = draft.menuItems.find((entry) => entry.id === id);
+          if (item) item.imageUrl = imageUrl || undefined;
+        });
+        showToast(imageUrl ? "Product photo saved." : "Product photo removed.", "success");
+      },
+
+      setPlan: (plan, invoiceNumber) => {
+        const amount = plan === "starter" ? 1490 : plan === "enterprise" ? 7990 : 3795;
+        update((draft) => {
+          draft.plan = plan;
+          draft.subscriptionStatus = "Paid";
+          draft.pendingInvoice = null;
+          const now = new Date();
+          draft.paidInvoices.unshift({
+            id: `inv-${now.getTime()}`,
+            number: invoiceNumber ?? String(now.getTime()).slice(-6),
+            created: formatTimestamp(now),
+            paid: formatTimestamp(now),
+            amount,
+          });
+        });
+        showToast(`Plan upgraded to ${plan}.`, "success");
       },
 
       createMenuCategory: (name, emoji = "🍽️") => {

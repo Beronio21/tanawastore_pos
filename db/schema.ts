@@ -22,6 +22,17 @@ export type TenantPlan = "starter" | "pro" | "enterprise";
 
 export type TenantSettingsPayload = Record<string, unknown>;
 
+/** `tenant_settings.general` keys used by Settings → General. */
+export type TenantGeneralSettings = TenantSettingsPayload & {
+  logoUrl?: string;
+  tin?: string;
+};
+
+/** `tenant_settings.receipt` keys used by Settings → Receipt. */
+export type TenantReceiptSettings = TenantSettingsPayload & {
+  paperWidth?: "58mm" | "80mm";
+};
+
 export type CategoryType = "product" | "ingredient";
 export type CatalogItemType = "product" | "dish" | "preparation" | "ingredient";
 export type StockMovementType =
@@ -148,6 +159,8 @@ export const catalogItems = pgTable(
     cost: numeric("cost", { precision: 12, scale: 2 }).notNull().default("0"),
     recipe: jsonb("recipe").$type<Record<string, unknown>[]>().notNull().default([]),
     trackStock: boolean("track_stock").notNull().default(false),
+    /** Public R2 URL (or local data URL) of the product/dish photo. */
+    imageUrl: text("image_url"),
   },
   (table) => [index("catalog_items_tenant_idx").on(table.tenantId)],
 );
@@ -287,12 +300,57 @@ export const financeTransactions = pgTable(
   (table) => [index("finance_transactions_tenant_idx").on(table.tenantId)],
 );
 
+export type KitchenTicketStatus = "queued" | "preparing" | "ready" | "served";
+
+export const kitchenTickets = pgTable(
+  "kitchen_tickets",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    receiptNumber: integer("receipt_number").notNull(),
+    tableLabel: text("table_label").notNull(),
+    station: text("station").notNull(),
+    status: text("status").$type<KitchenTicketStatus>().notNull().default("queued"),
+    orderSource: text("order_source"),
+    comment: text("comment"),
+    items: jsonb("items").$type<{ name: string; qty: number }[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("kitchen_tickets_tenant_idx").on(table.tenantId),
+    index("kitchen_tickets_status_idx").on(table.tenantId, table.status),
+  ],
+);
+
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    number: text("number").notNull(),
+    plan: text("plan").$type<TenantPlan>().notNull().default("starter"),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull().default("0"),
+    currency: text("currency").notNull().default("PHP"),
+    status: text("status").notNull().default("paid"),
+    provider: text("provider").notNull().default("paymongo"),
+    providerReference: text("provider_reference"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("invoices_tenant_idx").on(table.tenantId),
+    uniqueIndex("invoices_tenant_number_idx").on(table.tenantId, table.number),
+  ],
+);
+
 export const tenantSettings = pgTable("tenant_settings", {
   tenantId: text("tenant_id").primaryKey(),
-  general: jsonb("general").$type<TenantSettingsPayload>().notNull().default({}),
+  general: jsonb("general").$type<TenantGeneralSettings>().notNull().default({}),
   delivery: jsonb("delivery").$type<TenantSettingsPayload>().notNull().default({}),
   security: jsonb("security").$type<TenantSettingsPayload>().notNull().default({}),
-  receipt: jsonb("receipt").$type<TenantSettingsPayload>().notNull().default({}),
+  receipt: jsonb("receipt").$type<TenantReceiptSettings>().notNull().default({}),
   loyalty: jsonb("loyalty").$type<TenantSettingsPayload>().notNull().default({}),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -302,3 +360,5 @@ export type NewTenant = typeof tenants.$inferInsert;
 export type LocationRow = typeof locations.$inferSelect;
 export type RegisterRow = typeof registers.$inferSelect;
 export type ReceiptRow = typeof receipts.$inferSelect;
+export type KitchenTicketRow = typeof kitchenTickets.$inferSelect;
+export type InvoiceRow = typeof invoices.$inferSelect;
