@@ -114,3 +114,12 @@ Agents modifying UI components **must** preserve the visual language familiar to
 - Tenants resolve via `lib/tenant.ts` (`orgId ?? personal_<userId>`); all `localStorage` keys are namespaced per tenant (`lib/tenant-keys.ts`). Phase 2 e2e specs must look up `tanawa_pos_state_*` keys dynamically instead of the legacy `tanawastore_pos_v1`.
 - `proxy.ts` wraps `clerkMiddleware` and skips Clerk's second internal-rewrite pass (Next.js 16.4.6 middleware-loop workaround — do not remove).
 - E2E/perf suites need `E2E_TEST_MODE=1` (see `docs/runtest.md`); it disables `auth.protect()` and must never be set in production.
+
+## 8. Neon PostgreSQL (`tanawa_pos` database)
+
+- **Driver:** `db/index.ts` uses `@neondatabase/serverless` `Pool` + `drizzle-orm/neon-serverless` (WebSocket) with `ws` — required because `drizzle-orm/neon-http` does **not** support `db.transaction()` (used by `/api/v1/receipts/sync` and `/api/v1/onboarding/complete`). The client is a lazily-created module singleton; `getDb()` returns `null` when `DATABASE_URL` is unset so CI/tests fall back to tenant-namespaced `localStorage`.
+- **Connection string:** `DATABASE_URL` in `.env.local` must point to the **`tanawa_pos` database** on the Neon `tan-awa` project (`bold-lake-12647687`, branch `production`), role `tanawa_pos_app`, **pooled `-pooler` host** (`ep-quiet-mountain-b3yco4z4-pooler.c-4.ap-southeast-1.aws.neon.tech`). Do NOT point it at `neondb` or `tanawa_shop` — those belong to other apps sharing the project.
+- **Schema sync:** `db/schema.ts` is the source of truth. `pnpm run db:push` (drizzle-kit) loads `.env.local` automatically; use `pnpm exec drizzle-kit push --force` in non-TTY shells.
+- **Seed:** `pnpm run db:seed` (`tsx db/seed.ts`) idempotently upserts demo tenant `tenant_demo_tanawa` (Malaybalay City café, Register 1, owner PIN `0000`).
+- **Neon CLI workflow:** `neon link --project-id bold-lake-12647687` (writes `.neon/`, which is gitignored), then `neon env pull` to refresh `.env.local` credentials if rotated.
+- **Verification:** with `DATABASE_URL` set, `GET /api/v1/bootstrap` returns `mode: "postgres"` with hydrated tenant rows; `POST /api/v1/receipts/sync` writes `receipts`, `receipt_items`, `finance_transactions`, `stock_movements` inside a transaction and dedupes on `client_mutation_id`.
